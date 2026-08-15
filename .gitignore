@@ -1,0 +1,51 @@
+# --- Credentials: never commit ---
+.secrets
+.secrets.*
+*.token
+.Renviron
+.env
+
+# --- R / environment
+.Rhistory
+.Rproj.user/
+.RData
+*.Rproj
+
+# --- Large, regenerable model output ---
+# Fits are archived on Redivis rather than committed (see journal/ for the dataset).
+# Small text exports and the paper caches ARE tracked, so the manuscript builds
+# without cluster access or a Redivis download.
+fits/**/*.rds
+!fits/**/summaries/*.csv
+figs/**/*.png
+studies/**/stan/*
+!studies/**/stan/
+!studies/**/stan/*.stan
+
+# --- Rendered outputs (sources are tracked) ---
+paper/*_cache/
+paper/*_files/
+paper/standard_model_short.tex
+paper/standard_model_short.pdf
+paper/standard_model_short.docx
+paper/science/supplement.tex
+paper/science/supplement.pdf
+
+# --- LaTeX aux ---
+*.aux
+*.log
+*.out
+*.toc
+*.blg
+*.bbl
+*.fls
+*.fdb_latexmk
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
+*~
+*.swp
+Rplots.pdf
+**/Rplots.pdf
