@@ -1,0 +1,244 @@
+"""
+Train GPT-2 small from scratch on CHILDES (Feng et al. 2026 specification),
+logging per-CDI-word mean surprisal at log-spaced training steps.
+
+Matches Feng et al. 2026 §B settings for the CHILDES condition (GPT-2 small,
+LR 1e-4 linear, no warmup, 20 epochs, batch 8/GPU, no in-epoch shuffling,
+Adam β=(0.9, 0.999), ε=1e-8, seq length 1024). The data file
+`CHILDES_train_ordered.txt` is consumed line-by-line in the given order.
+
+Eval set for the callback is the precomputed CDI-context JSONL.
+
+Usage:
+    python train_gpt2_childes.py \
+        --train_file CHILDES_train_ordered.txt \
+        --val_file CHILDES_val_ordered.txt \
+        --tokenizer_dir tokenizers/GPT2_CHILDES \
+        --config_file tokenizers/GPT2-small_config/config.json \
+        --output_dir /tmp/run_seed42 \
+        --cdi_contexts_jsonl cdi_contexts.jsonl \
+        --surprisal_csv surprisal_seed42.csv \
+        --num_train_epochs 20 \
+        --per_device_batch_size 8 \
+        --learning_rate 1e-4 \
+        --seed 42 \
+        --n_log_points 80
+"""
+
+import argparse
+import os
+import sys
+
+import torch
+from datasets import load_dataset
+from transformers import (
+    AutoTokenizer,
+    GPT2Config,
+    GPT2LMHeadModel,
+    DataCollatorForLanguageModeling,
+    Trainer,
+    TrainingArguments,
+    EarlyStoppingCallback,
+    set_seed,
+)
+
+# Allow running from anywhere; ensure local imports work
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from surprisal_callback import WordSurprisalCallback
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--train_file", required=True)
+    ap.add_argument("--val_file", required=True)
+    ap.add_argument("--tokenizer_dir", required=True)
+    ap.add_argument("--config_file", required=True)
+    ap.add_argument("--output_dir", required=True)
+    ap.add_argument("--cdi_contexts_jsonl", required=True)
+    ap.add_argument("--surprisal_csv", required=True)
+    ap.add_argument("--num_train_epochs", type=float, default=20.0)
+    ap.add_argument("--per_device_batch_size", type=int, default=8)
+    ap.add_argument("--learning_rate", type=float, default=1e-4)
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--n_log_points", type=int, default=80)
+    ap.add_argument("--save_total_limit", type=int, default=1)
+    ap.add_argument("--seq_len", type=int, default=1024)
+    ap.add_argument("--logging_steps", type=int, default=50)
+    ap.add_argument("--eval_callback_batch_size", type=int, default=64)
+    ap.add_argument("--eval_max_ctx", type=int, default=128,
+                    help="Truncate each CDI context to last N tokens for eval (cheap).")
+    ap.add_argument("--eval_max_per_word", type=int, default=50,
+                    help="Subsample CDI contexts to N per word for callback eval.")
+    ap.add_argument("--no_save", action="store_true",
+                    help="Skip saving any model checkpoints (we don't need them)")
+    ap.add_argument("--early_stopping_patience", type=int, default=0,
+                    help="If >0, early-stop on eval_loss with this patience and "
+                         "load the best-val model at end (used for the developmental "
+                         "ladder, where each rung is read at convergence). Forces "
+                         "per-epoch checkpointing (save_total_limit=1).")
+    ap.add_argument("--max_eval_blocks", type=int, default=0,
+                    help="If >0, subsample the val set to this many blocks for the "
+                         "per-epoch eval_loss (used for early-stopping/best-model "
+                         "selection only). Cuts per-epoch eval cost massively; the "
+                         "CDI-word competence readout is unaffected (it uses the "
+                         "surprisal callback, not eval_loss).")
+    args = ap.parse_args()
+
+    set_seed(args.seed)
+
+    print(f"[train] loading tokenizer from {args.tokenizer_dir}", flush=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_dir)
+    # GPT-2 has no pad token by default — use eos for padding in collator.
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    print(f"[train] loading config from {args.config_file}", flush=True)
+    config = GPT2Config.from_pretrained(args.config_file)
+    # Make config's vocab match the tokenizer
+    config.vocab_size = tokenizer.vocab_size
+    config.bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.eos_token_id
+    config.eos_token_id = tokenizer.eos_token_id
+
+    print(f"[train] init GPT-2 from config (vocab {config.vocab_size}, "
+          f"n_layer {config.n_layer}, n_embd {config.n_embd})", flush=True)
+    model = GPT2LMHeadModel(config)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"[train] model params: {n_params:,}", flush=True)
+
+    # ---- Datasets ----
+    print(f"[train] loading text datasets", flush=True)
+    raw = load_dataset(
+        "text",
+        data_files={"train": args.train_file, "validation": args.val_file},
+        keep_linebreaks=True,
+    )
+    print(f"[train] raw train lines: {len(raw['train'])}, val lines: {len(raw['validation'])}",
+          flush=True)
+
+    def tokenize_function(examples):
+        return tokenizer(examples["text"])
+
+    tokenized = raw.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=["text"],
+        desc="Tokenizing",
+        num_proc=4,
+    )
+
+    block_size = args.seq_len
+
+    def group_texts(examples):
+        # Concatenate all texts; chunk into blocks of block_size.
+        # Mirrors HF run_clm.py.
+        concatenated = {k: sum(examples[k], []) for k in examples.keys()}
+        total_length = len(concatenated[list(examples.keys())[0]])
+        total_length = (total_length // block_size) * block_size
+        result = {
+            k: [t[i:i + block_size] for i in range(0, total_length, block_size)]
+            for k, t in concatenated.items()
+        }
+        result["labels"] = result["input_ids"].copy()
+        return result
+
+    lm_dataset = tokenized.map(
+        group_texts,
+        batched=True,
+        num_proc=4,
+        desc=f"Grouping into {block_size}-token blocks",
+    )
+    print(f"[train] grouped train blocks: {len(lm_dataset['train'])}, "
+          f"val blocks: {len(lm_dataset['validation'])}", flush=True)
+
+    # Subsample the val set used for per-epoch eval_loss (early-stopping / best-model
+    # selection). This does NOT affect the CDI-word competence readout, which comes
+    # from the surprisal callback. Big speedup: full CHILDES val is ~8k blocks (~100s
+    # per epoch); a few hundred blocks gives a stable enough eval_loss for stopping.
+    eval_dataset = lm_dataset["validation"]
+    if args.max_eval_blocks > 0 and len(eval_dataset) > args.max_eval_blocks:
+        eval_dataset = eval_dataset.select(range(args.max_eval_blocks))
+        print(f"[train] eval_loss on subsampled {len(eval_dataset)} val blocks", flush=True)
+
+    # ---- Training ----
+    early_stop = args.early_stopping_patience > 0
+    # Early-stopping needs per-epoch checkpoints + load-best so the on_train_end
+    # surprisal eval reads the best-val ("converged") model. Overrides --no_save.
+    save_strategy = "epoch" if early_stop else ("no" if args.no_save else "epoch")
+    targs = TrainingArguments(
+        output_dir=args.output_dir,
+        overwrite_output_dir=True,
+        do_train=True,
+        do_eval=True,
+        num_train_epochs=args.num_train_epochs,
+        per_device_train_batch_size=args.per_device_batch_size,
+        per_device_eval_batch_size=args.per_device_batch_size,
+        learning_rate=args.learning_rate,
+        lr_scheduler_type="linear",
+        warmup_steps=0,
+        weight_decay=0.0,
+        adam_beta1=0.9,
+        adam_beta2=0.999,
+        adam_epsilon=1e-8,
+        seed=args.seed,
+        data_seed=args.seed,
+        logging_steps=args.logging_steps,
+        eval_strategy="epoch",
+        save_strategy=save_strategy,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=early_stop,
+        metric_for_best_model="eval_loss" if early_stop else None,
+        greater_is_better=False if early_stop else None,
+        # match Feng et al.: no shuffling within epoch
+        # HF Trainer arg name is `dataloader_drop_last`/`dataloader_shuffle`;
+        # the shuffling flag controls in-epoch shuffling for train loader.
+        report_to=[],  # no W&B
+        bf16=torch.cuda.is_bf16_supported(),
+        fp16=not torch.cuda.is_bf16_supported(),
+        dataloader_num_workers=2,
+        ddp_find_unused_parameters=False,
+    )
+    # `train_dataloader_shuffle` was added in transformers≥4.41. For 4.39 we
+    # subclass Trainer to override get_train_dataloader and disable shuffling.
+
+    class NoShuffleTrainer(Trainer):
+        def _get_train_sampler(self):
+            # Sequential sampler => no shuffling
+            return torch.utils.data.SequentialSampler(self.train_dataset)
+
+    callback = WordSurprisalCallback(
+        contexts_jsonl=args.cdi_contexts_jsonl,
+        out_csv=args.surprisal_csv,
+        n_points=args.n_log_points,
+        eval_batch_size=args.eval_callback_batch_size,
+        max_ctx=args.eval_max_ctx,
+        max_per_word=args.eval_max_per_word,
+    )
+
+    callbacks = [callback]
+    if early_stop:
+        callbacks.append(EarlyStoppingCallback(
+            early_stopping_patience=args.early_stopping_patience))
+
+    trainer = NoShuffleTrainer(
+        model=model,
+        args=targs,
+        train_dataset=lm_dataset["train"],
+        eval_dataset=eval_dataset,
+        tokenizer=tokenizer,
+        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        callbacks=callbacks,
+    )
+
+    trainer.train()
+    if early_stop:
+        # Confirms the best-val model was identified (and thus loaded by
+        # load_best_model_at_end before the on_train_end surprisal eval).
+        print(f"[train] best_model_checkpoint={trainer.state.best_model_checkpoint} "
+              f"best_metric={trainer.state.best_metric}", flush=True)
+    if not args.no_save and not early_stop:
+        trainer.save_model(os.path.join(args.output_dir, "final"))
+    print(f"[train] DONE. surprisal log: {args.surprisal_csv}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

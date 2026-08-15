@@ -1,0 +1,532 @@
+---
+author:
+  - name: Michael C. Frank
+    affiliations: 
+      - name: Department of Psychology, Stanford University
+
+title: Children, but not language models, show accelerating returns in word learning
+#Children but not language models learn words via accelerating accumulation 
+#Children but not language models learn vocabulary via accelerating accumulation
+#Efficiency and acceleration in the accumulation of children’s early vocabulary
+title-short: Accelerating accumulator models
+keywords: Early word learning; Bayesian data analysis; Large language models
+abstract: |
+  \noindent Children learn hundreds of words over the first years of their lives, in a process that begins slowly but quickly picks up speed. Prior models describe vocabulary growth as evidence accumulation over time. Here we show that the process is best characterized as *accelerating* accumulation: children learn more from each additional unit of linguistic experience than they did from the one before. In contrast to children, language models -- even those trained on child-directed speech -- do not accelerate. Instead, they show constant proportional returns on new data, consistent with scaling laws. Children learn using many orders of magnitude less training data than language models; their increasingly efficient use of their learning input is a candidate explanation. 
+  
+bibliography: standard_model.bib
+# Dataset citations appear as plain text in Table 1 (kable can't render
+# [@key] markers); list their bib keys here so they still appear in the
+# References. Add @marchman / @smith dataset keys once they exist in the bib.
+csl: science.csl
+format:
+  # Science wants a single .docx for the main text, with figures embedded and the
+  # supplementary materials as a separate file: "If you are using LaTeX, please convert
+  # your paper into .docx format." The PDF target below is unchanged and remains what we
+  # render for internal review; `quarto render --to docx` produces the submission file.
+  docx:
+    fig-dpi: 300
+    fig-width: 7.24     # 18.4 cm, Science's 3-column width
+  pdf:
+    documentclass: article
+    geometry: margin=1in
+    fontsize: 11pt
+    linestretch: 1.05
+    colorlinks: true
+    keep-tex: true
+    # Pin figures where they appear in the source instead of letting LaTeX float
+    # them to a later page. Needs BOTH halves: fig-pos puts [H] on every figure,
+    # and the float package below is what defines [H].
+    fig-pos: 'H'
+    # pdflscape: needed by kableExtra::landscape() (Table 1). Declared
+    # explicitly because kableExtra's automatic dependency injection is
+    # unreliable in Quarto (dropped on cached-chunk replay), which makes
+    # the compile fail with "Environment landscape undefined."
+    # float: defines the [H] specifier used by fig-pos above and by the tables'
+    # kableExtra latex_options = "HOLD_position". The capitals matter: the
+    # lowercase spelling of that option only emits [!h], which still permits
+    # floating, whereas the uppercase one emits a true [H].
+    include-in-header:
+      text: |
+        \usepackage{pdflscape}
+        \usepackage{float}
+        % Tables need this as well as the kableExtra option. When a chunk has a
+        % tbl-cap, Quarto emits its OWN \begin{table} wrapper around the kable
+        % output and kableExtra's placement is discarded, so the float came out
+        % with no specifier at all (i.e. default [tbp], free to drift).
+        % \floatplacement sets the default for every table float regardless of
+        % who emits it. Long tables rendered as `longtable` are unaffected,
+        % since longtable is not a float.
+        \floatplacement{table}{H}
+---
+
+```{r setup, include=FALSE}
+## Shared with paper/science/supplement.qmd -- see paper/_setup_shared.R
+source("_setup_shared.R")
+```
+
+Children’s language grows rapidly during early childhood [@frank2021;@kidd2020], and the "explosion" of expressive vocabulary is a signature human cognitive achievement [@bloom2002;@spelke2003]. Providing a quantitative characterization of this process is an important scientific goal [@frank2009;@mcmurray2012;@trueswell2013;@hidaka2013;@kachergis2022], but until recently, language acquisition could only be studied in human learners. Language models (LMs) show increasing linguistic sophistication, however, allowing them to become a model system for the study of human language [@huebner2021;@futrell2025].
+
+The most successful LMs differ from human learners in an important way: they are trained on vastly more data than human learners receive during childhood. While even open-source models are routinely trained on trillions of words of data [@gao2020], children hear on the order of 100k -- 1M words of input per month, with 30-40M words as an approximate upper bound by age three [@frank2023;@warstadt2023]. Why do models require so many more orders of magnitude of training data to achieve basic linguistic competence? 
+
+Here we study this "data gap" by comparing word learning as a function of training data in both children and LMs. Vocabulary is a good target for comparison because the number of words a child produces is an important measure of expressive abilities that is also tightly coupled to grammatical development and other aspects of early language [@bates1994;@frank2021]. Vocabulary size varies widely between children of the same age [@frank2021],
+and relative vocabulary size is a predictor of later academic success [@marchman2008;@catts2002]. Large longitudinal vocabulary datasets using the MacArthur-Bates Communicative Development Inventories (CDIs), a popular parent-report form, make it possible to characterize this growth even in young children [@fenson1994;@marchman2021;@frank2021]. 
+
+<!-- Vocabulary for young children can be approximated effectively using parent report forms, such as the MacArthur-Bates Communicative Development Inventories (MB-CDI) [@marchman2021]. CDIs are a widely-used, reliable, and valid method for taking an in-depth snapshot of children's early vocabulary, and can be used longitudinally to track the growth of language over time [@fenson1994;@fenson2007;@marchman2021;@frank2021]. We analyze archival CDI data from Wordbank, an open access database of cross-linguistic parent report data on the vocabularies of thousands of children [@frank2017]. -->
+
+We compare how vocabulary grows with input data in children and LMs. We begin by developing a psychometric model of vocabulary growth in children (an "accelerating accumulator"), which shows a good fit to population variation across children. This model suggests that children’s accumulation of evidence for words, not just their observed vocabulary size, accelerates across early childhood. This acceleration leads to an increasing "return" on learning from linguistic experience: the same experience counts for more later in development. In contrast to children, LMs do not accelerate: they show constant proportional returns on additional data. This analysis exposes a critical disanalogy between LMs and children and suggests new avenues for the study of both. 
+
+# An accelerating accumulator model of vocabulary growth
+
+Recent models describe children's vocabulary growth as a process of accumulation [@mcmurray2007; @hidaka2013; @mollica2017; @kachergis2022]. Each distinct word (type) can be conceptualized as a "bucket," and every token of language input then is a "drop" that falls into its respective bucket. When each bucket is full, the word is learned [@mcmurray2007;@kachergis2022]. Accumulator models have been used to recover interpretable differences in "bucket size," often based on word properties including concreteness and syntactic category [@hidaka2013;@kachergis2022]. They also provide a graded explanation for the widely observed "vocabulary spurt" [@mcmurray2007;@ganger2004;@gomezdiaz2024]. Children's *observed vocabulary* (in terms of count) grows supralinearly with age [@frank2021;@fenson1994], but this qualitative pattern is consistent with many possible underlying mechanisms [@mcmurray2007].
+
+We begin an accumulator model that operates over ratio-scale variables with real units: words (tokens heard) per hour and total words (types) in the child's vocabulary [@kachergis2022]. The presence of a true zero in each of these variables means that they can be log transformed, which is critical for capturing the shape of their growth over development [@frank2026;@kail1991]. 
+<!-- This feature also distinguishes our modeling approach from other models of early word learning, which typically establish either schematic or variability-based linkages to developmental data without making [@frank2009;@mcmurray2012;@trueswell2013;@kachergis2012].  -->
+This accumulator can be written as a Rasch model from psychometrics [@rasch1960], which assumes that each child $i$ has a learning ability $\theta_i$ and each word $j$ has a difficulty $\delta_j$.^[Prior work has focused on estimating  properties of individual words  [@goodman2008;@hidaka2013;@kachergis2022], revealing that there is predictable word-level difficulty information but that only a modest portion of the variation between words is carried by frequency information. Words can be hard for a child to acquire because they vary also in the complexity and concreteness of their meanings, their syntactic category and syntactic context, their phonology, and many other factors. In the current work, we estimate word difficulty as a free parameter, and focus instead on variation between children.] The probability that child $i$ produces word $j$ is: 
+
+$$P(w_{i,j}=1 \mid \theta_i, \delta_j) =\frac{\exp(\theta_i - \delta_j)}{1 + \exp(\theta_i - \delta_j)}.$$
+  
+We then describe the child's ability as
+
+$$\theta_i(t) = \xi_i + \kappa_i ~ \log(t/a_0) + \log(H),$$
+
+\noindent which contains three terms: an intercept $\xi_i$ describing the child's baseline learning efficiency, an acceleration term, $\kappa_i ~ \log(t/a_0)$ that describes the rate of accumulation in time ($t$, relative to an anchor $a_0$), and a constant offset $H$ for the number of hours over which accumulation occurs.
+
+This model is an "accelerating accumulator" model, in which accumulating language "counts for more" later in development; $\kappa$ is the key exponent describing developmental scaling. In contrast, an accumulator with $\kappa=1$ would be $\theta_i(t) = \xi + log(t/a_0) + log(H)$. This "pure accumulator" yields linear returns on experience, while $\kappa>1$ shows acceleration. Under $\kappa=1$, the size of the "drops" filling the buckets remains constant across development; if $\kappa>1$, "drops" get bigger. 
+
+We posit that children vary on both their efficiency of accumulation $\xi_i$ and their acceleration $\kappa_i$, creating a variant of a standard longitudinal growth model in which children vary on their slope and intercept [@grimm2016] (@fig-schematic A). Our model is close to the formulations of @hidaka2013 and @kachergis2022, but has not yet been proposed (supplementary text).
+
+# Fitting the accumulator model 
+
+CDIs are a widely used, reliable, and valid method for taking an in-depth snapshot of children's early vocabulary [@fenson1994;@marchman2021;@frank2021]. Our analysis depends on the availability of longitudinal CDI data at the individual word level. Summed vocabulary scores do not allow for the estimation of word difficulties $\delta$ and cross-sectional data do not allow for model identification (`r si_ref("fig-cross-sectional-confound")`). Thus, we use item-level longitudinal data from children with three or more longitudinal administrations. We analyze reported production, which is both measured over a wider age range and tends to be a more reliable measure than reported comprehension [@frank2021]. 
+
+We use five longitudinal datasets of monolingual, typically developing children ages `r age_lo`--`r age_hi` months (three from American English and one each from Norwegian and Japanese, $N_{total} = `r sum(fig1_fan$meta$n_kids)`$; see `r si_ref("tbl-datasets", "fig-qc")`), downloaded from Wordbank [@frank2017]. We fit the accelerating accumulator model (M3) to each dataset using Bayesian inference. To test whether each model component was necessary, we additionally fit three model ablations, removing individual variation in acceleration (without $\kappa_i$; M2), removing individual variation in efficiency (without $\xi_i$; M1), and finally removing acceleration entirely (without $\kappa$; M0). 
+
+The accelerating accumulator provided the best fit to children's growth trajectories (@fig-schematic B, see `r si_ref("tbl-loo")`), with substantial improvements in item-level expected log predictive density between the accelerating accumulator and the next best model (LOO ELPD $>`r loo_min`$ for all five datasets). Indeed, fits from M3 corresponded closely to curves derived from a non-parametric GAMLSS beta regression, a flexible model class used to produce percentile norms for the CDI instruments [@marchman2021] (`r si_ref("fig-gamlss-overlay")`). 
+
+Estimates of acceleration were high for all datasets, robustly rejecting the pure accumulator ($\kappa=1$) in every case: `r kap_lo` [`r kap_lo_q5`, `r kap_lo_q95`] -- `r kap_hi` [`r kap_hi_q5`, `r kap_hi_q95`]. $\kappa$ estimates were essentially unchanged using a larger dataset and in a hierarchical model pooling across all datasets (`r si_ref("tbl-settings")`). A 2PL IRT model achieved a better fit but $\kappa$ estimates remained far above the pure accumulator and word-level age of acquisition estimates were very similar (`r si_ref("tbl-2pl")`); the specifics of item selection on CDI forms had only minimal effects on $\kappa$ estimates (`r si_ref("fig-item-subset")`). Linear (rather than logarithmic) growth models did not provide better fit (`r si_ref("tbl-loglin")`). 
+
+Variability is a ubiquitous feature of early language [@frank2021;@kidd2020]. The between-child standard deviation in acceleration ($\sigma_b$) ranged from `r sb_lo` to `r sb_hi` across the five samples; the fitted population distribution placed `r pct_gt1`% of children above the pure-accumulator value of $\kappa = 1$. Although the population fits showed substantial slope variation, typical CDI series are too sparse to predict individual children’s acceleration reliably beyond the population mean (`r si_ref("tbl-cv-depth", "tbl-cv-headline", "fig-blup-hist", "tbl-ranef")`). Nevertheless, the addition of a population acceleration parameter improved individual trajectory prediction in `r round(si_cvh$pct_child_better[5], 1)`% of children when five or more prior CDIs were available.
+<!-- At a population level, the distribution across children appeared unimodal in all samples, but the increasing spread of children's trajectories with age was especially noticeable for low-vocabulary older children [who may be classified as "late talkers"; @fernald2012; @rescorla2011; @pinstock2026;@singletary2025] (SI: ). -->
+
+```{r fig-schematic, fig.width=7.5, fig.height=7.6}
+#| label: fig-schematic
+#| fig-cap: "**The accelerating accumulator provides a psychometric model of vocabulary growth, describing the children's word learning across datasets and languages.** (A) Model predictions in latent-ability ($\\theta$) space and, projected through the logistic item response model, in words-produced (CDI) space. Both pure accumulator ($\\kappa = 1$, dashed) and accelerating accumulator predictions are plotted. Greater efficiency ($\\xi$) lifts the curve's level, while greater acceleration ($\\kappa$) fans it open. (B) Individual children's observed trajectories (gray) for each of the five longitudinal datasets, with quantiles computed across the per-child parameters of the fitted models (colored percentile bands for M2 and M3; black lines for M0 and M1, which do not vary across individuals)."
+
+## Fig 1 precomputed in paper/build_cache_short.R (fig1_fan.rds). Three-block
+## composite via cowplot: (A) graphical model image; (B) conceptual theta -> CDI
+## mechanism (two facets); (C) per-dataset model-implied fan over trajectories
+## (five facets, legend in the empty 6th cell). Only block-level A/B/C labels.
+library(cowplot)
+pal <- unname(WORDBANK_PALETTE)
+col_scn <- c("Pure (κ=1)" = "grey55", "Baseline" = "#222222",
+             "↑ Efficiency" = "#0072B2", "↑ Acceleration" = "#D55E00")
+lty_scn <- c("pure" = "21", "accel" = "solid")
+
+## Block B: conceptual theta -> CDI mechanism.
+## Built as TWO single-facet plots stitched side by side rather than one two-facet
+## facet_wrap. facet_wrap shares one y-axis title across its panels, but these panels
+## are in different units (logits vs proportion) and each needs its own. Keeping a real
+## facet_wrap(~quantity) inside each plot preserves the bold strip headers and the
+## grouped appearance; patchwork only supplies the independent y titles.
+## [MCF: the two y-axis titles below are agent-set -- reword if you'd prefer others.]
+## NB: name this `qsel`, NOT `q` -- fig1_fan$conceptual carries a column called `q`
+## (pivot_longer names_to), and dplyr data-masking would resolve `quantity == q`
+## against that column instead of the local variable, silently yielding zero rows.
+## Display-only short strip titles. At 7.5in the two block-B panels are ~1.4in wide and
+## the cached labels ("Latent Ability (θ)", "Words Produced (CDI)") are wider than that,
+## so they were being clipped mid-word. The y-axis titles already say which units each
+## panel is in, so the strips can be terse. [MCF: reword if you prefer.]
+## Full titles restored: with the plate diagram gone each panel is ~3.6in wide, so the
+## longer cached labels no longer clip.
+STRIP_B <- c("Latent Ability (\u03b8)", "Words Produced (CDI)")
+panelB <- function(i, ylab, ylim = NULL) {
+  qsel <- levels(fig1_fan$conceptual$quantity)[i]
+  d <- dplyr::filter(fig1_fan$conceptual, quantity == .env$qsel) |>
+    dplyr::mutate(quantity = factor(STRIP_B[i], levels = STRIP_B[i]))
+  ggplot(d, aes(age, value, color = scenario, linetype = kind, group = scenario)) +
+    (if (is.null(ylim)) NULL else
+       geom_blank(data = data.frame(age = 9, value = ylim),
+                  aes(age, value), inherit.aes = FALSE)) +
+    geom_line(linewidth = 0.8) +
+    ## Both panels are labelled again now that they are ~3.6in wide; at 1.4in the
+    ## accelerating curves' end labels collided in words-produced space.
+    (ggrepel::geom_text_repel(
+      data = dplyr::filter(fig1_fan$conceptual_lab, quantity == .env$qsel) |>
+              dplyr::mutate(quantity = factor(STRIP_B[i], levels = STRIP_B[i])),
+      aes(label = scenario),
+      size = 2.7, hjust = 0, direction = "y", nudge_x = 0.8,
+      segment.size = 0.2, xlim = c(36, NA), box.padding = 0.3, min.segment.length = 0)) +
+    facet_wrap(~ quantity) +
+    scale_color_manual(values = col_scn, guide = "none") +
+    scale_linetype_manual(values = lty_scn, guide = "none") +
+    ## lower limit 8 to match the DATA range in block C (Marchman and Norwegian both
+    ## start at 8), so B and C share an x-origin. Curve data now spans 8-36 (cache).
+    scale_x_continuous(breaks = c(12, 24, 36)) +
+    coord_cartesian(xlim = c(8, 49), clip = "off") +
+    labs(x = "Age (Months)", y = ylab) +
+    theme_minimal(base_size = 11) +
+    theme(strip.text = element_text(face = "bold", size = 11),
+          panel.grid.minor = element_blank(),
+          plot.margin = margin(16, 10, 4, 6))
+}
+## left = latent ability (free y); right = CDI proportion pinned to the full [0, 1]
+pB <- panelB(1, "Latent ability (logits)") |
+      panelB(2, "Proportion of items produced", ylim = c(0, 1))
+
+## Block C: per-dataset fits, with the ablation rungs on the same axes.
+##
+## The ladder was previously described only in the text, so a reader could not see what
+## the ablations fail to do. All four rungs are drawn the same way -- quantiles across
+## children of predicted vocabulary proportion -- from fig1_fan$ablations, built in
+## paper/build_cache_short.R with each rung using its OWN fitted item difficulties.
+##
+## M2 is kept even though it tracks M3 closely in three of five panels. It is the model
+## the LOO ladder and the forward-CV section are argued against, and showing the two rungs
+## that lose easily while dropping the one that is close would be a selective picture. The
+## closeness is also consistent with what those analyses report: the difference between M2
+## and M3 lives in per-child trajectories, which a quantile fan across children averages
+## over. Toggling it off is a one-line change here; the cache carries it regardless.
+##
+## SPAGHETTI. fig1_fan$spag_all is every child, not the 150-child sample in $spag, with a
+## per-dataset alpha carried in the data. Samples run 96 to 792 children, so one alpha
+## cannot serve both -- the alpha column holds n * alpha roughly constant so the grey reads
+## as a density of where children are rather than as recruitment size.
+##
+## LEGENDS. Both are mapped scales rather than hand-drawn keys, so they stay correct if the
+## data change, and both sit in the empty sixth facet cell -- nothing is drawn inside a
+## data panel. They answer different questions and are titled to say so: colour is WHICH
+## CHILD (percentile), linetype is WHICH MODEL. Percentile applies only to M2/M3; M0 and M1
+## have no per-child parameters and can only produce a single curve, which is the point
+## those rungs make.
+MLAB <- c(M3 = "M3: full model", M2 = "M2: no per-child acceleration",
+          M1 = "M1: no individual variation", M0 = "M0: no acceleration")
+MLT  <- setNames(c("solid", "22", "11", "42"), MLAB)
+.abl <- function(m) dplyr::filter(fig1_fan$ablations, model == m) |>
+  dplyr::mutate(model_lab = factor(MLAB[[m]], levels = unname(MLAB)))
+.m3  <- dplyr::mutate(fig1_fan$fan, model_lab = factor(MLAB[["M3"]], levels = unname(MLAB)))
+pC <- ggplot() +
+  geom_line(data = fig1_fan$spag_all,
+            aes(age, prop, group = interaction(lang, child), alpha = alpha),
+            colour = "grey25", linewidth = 0.16) +
+  scale_alpha_identity() +
+  ## the two no-variation rungs: same black, different dash, so they read as a pair
+  geom_line(data = dplyr::filter(.abl("M0"), qf == "50th"),
+            aes(age, vocab, linetype = model_lab), colour = "black", linewidth = 0.6) +
+  geom_line(data = dplyr::filter(.abl("M1"), qf == "50th"),
+            aes(age, vocab, linetype = model_lab), colour = "black", linewidth = 0.6) +
+  geom_line(data = .abl("M2"), aes(age, vocab, color = qf, group = qf, linetype = model_lab),
+            linewidth = 0.4, alpha = 0.85) +
+  geom_line(data = .m3, aes(age, vocab, color = qf, group = qf, linetype = model_lab,
+            linewidth = ifelse(qf == "50th", 0.95, 0.6))) +
+  facet_wrap(~ lang, scales = "free_x", nrow = 2) +
+  scale_color_manual(values = pal, name = "Child percentile", drop = FALSE) +
+  scale_linetype_manual(values = MLT, name = "Model", drop = FALSE, limits = unname(MLAB)) +
+  scale_linewidth_identity() +
+  scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.5, 1)) +
+  labs(x = "Age (Months)", y = "Proportion of Items Produced") +
+  ## reverse = TRUE so the legend runs 90th -> 10th, matching the top-to-bottom order the
+  ## bands actually appear in; ascending order made the reader invert it mentally
+  guides(color    = guide_legend(order = 1, reverse = TRUE,
+                                 override.aes = list(linewidth = 1.1, linetype = "solid")),
+         linetype = guide_legend(order = 2, override.aes = list(colour = "black", linewidth = 0.6))) +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold", size = 11),
+        panel.grid.minor = element_blank(), panel.spacing = unit(1, "lines"),
+        plot.margin = margin(16, 8, 4, 6),
+        legend.position = c(0.685, 0.245), legend.justification = c(0, 0.5),
+        legend.box = "vertical", legend.box.just = "left",
+        legend.spacing.y = unit(2, "pt"), legend.margin = margin(1, 1, 1, 1),
+        legend.key.width = unit(20, "pt"), legend.key.height = unit(11, "pt"),
+        legend.title = element_text(size = 9.5), legend.text = element_text(size = 8.4),
+        legend.background = element_rect(fill = "white", color = NA))
+
+## The plate/graphical-model block that used to occupy the top-left has been REMOVED per
+## MCF. It was a raster whose internal text could not scale with base_size, plate notation
+## is specialist for a broad readership, and it restated an equation the text already
+## gives. It was also the direct cause of the crowding in this figure: it consumed ~40% of
+## the top row, which is why the strip titles clipped and the right-hand panel had to give
+## up its direct labels. The asset survives at paper/mockups/fig1_gm_notitle.png if it is
+## ever wanted in the SI.
+##
+## compose: [A A] over [B B B] -- the two conceptual panels now span the full row, so each
+## is ~3.6in rather than ~1.4in.
+cowplot::plot_grid(pB, pC, ncol = 1, rel_heights = c(1, 1.65),
+                   labels = c("A", "B"), label_size = 13, vjust = 1.1)
+```
+
+# Accelerating accumulation implies less exposure is needed for later-acquired words
+
+```{r fig-efficiency, fig.width=7, fig.height=5}
+#| label: fig-efficiency
+#| fig-cap: "**Under the accelerating accumulator model, the number of exposures needed to learn a word decreases with age.** Plot shows estimated cumulative exposures to a word plotted by the age at which 50% of the children in our three English-language datasets were estimated to produce the word. Colors show different word classes, and solid and dashed lines show simple linear fits from the accelerating (M3) and pure accumulator (M0) models, respectively."
+
+items <- fig2$items
+k <- 8
+.vis <- items |> filter(N_word >= 50, N_word <= 1e6, t_50 >= 10, t_50 <= 42)
+labels_df <- bind_rows(
+  slice_min(.vis, t_50,   n = k),   # far left  (earliest)
+  slice_max(.vis, t_50,   n = k),   # far right (latest)
+  slice_min(.vis, N_word, n = k),   # bottom    (fewest exposures)
+  slice_max(.vis, N_word, n = k)) |># top       (most exposures)
+  distinct(item, .keep_all = TRUE)
+## Dashed lines are the FITTED PURE ACCUMULATOR (M0), from the same counterfactual the SI
+## reports (fig2$m0_lines, built in paper/build_cache_short.R from si_fig2_m0.rds), so the
+## two sections cannot drift apart. They are semi-log fits because that is this figure's
+## geometry -- linear age, log10 exposures -- not the log-log elasticities in the SI table.
+## Each dashed line spans the same ages as the solid line it is compared against.
+ggplot(items, aes(t_50, N_word, colour = lexical_class)) +
+  geom_point(alpha = 0.5, size = 1.1) +
+  geom_smooth(aes(linetype = "Accelerating (M3)"),
+              method = "lm", se = FALSE, linewidth = 0.8, formula = y ~ x) +
+  geom_line(data = fig2$m0_lines, aes(linetype = "Pure accumulator (M0)"), linewidth = 0.8) +
+  ggrepel::geom_text_repel(data = labels_df,
+                           aes(label = sub("[ ]*\\(.*\\)$", "", word)), size = 2.7,
+                           max.overlaps = Inf, min.segment.length = 0,
+                           segment.size = 0.2, show.legend = FALSE) +
+  scale_y_log10(labels = scales::label_number(big.mark = ","),
+                breaks = c(100, 1000, 10000, 100000),
+                limits = c(50, 1000000)) +
+  scale_x_continuous(limits = fig2$xlim) +
+  # Okabe-Ito rather than Dark2: under simulated deuteranopia Dark2 put nouns and
+  # function words at dE 5.9 -- effectively the same colour, and they are the largest
+  # class and the top line. This lifts the worst pair to 20.7 with every colour
+  # still dark enough to read on white (L* 46-70).
+  scale_colour_manual(values = c("#0072B2", "#D55E00", "#56B4E9", "#CC79A7"), name = NULL,
+                      labels = c("Nouns", "Action Words", "Descriptive Words", "Function Words")) +
+  scale_linetype_manual(values = c("Accelerating (M3)" = "solid",
+                                   "Pure accumulator (M0)" = "dashed"), name = NULL) +
+  ## colour keys show points (they identify word classes, not fits); the linetype legend
+  ## carries the model contrast in neutral grey so it is not read as a fifth word class
+  guides(colour = guide_legend(order = 1, override.aes = list(linetype = 0, size = 2)),
+         linetype = guide_legend(order = 2, override.aes = list(colour = "grey30"))) +
+  labs(x = "Age (months) when 50% of children produce word",
+       y = "Cumulative exposures at age of acquisition") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(),
+        legend.box = "vertical", legend.spacing.y = unit(0, "pt"))
+```
+
+The accelerating accumulator model captures a salient fact about language acquisition: the number of exposures necessary to learn a word decreases dramatically over childhood. A toddler may have heard a word like "book" thousands of times before they say it; a few years later a preschooler may hear "ibex" a handful of times on a trip to the zoo and repeat it the next day. 
+
+To quantify this phenomenon, we computed each word's age of acquisition (AoA) $A$ from our fitted models, with AoA defined as the point at which 50% of children produce the word -- in other words, the age at which child ability and word difficulty balance: $A(j) = a_0 \exp\!\big((\delta_j - \log H - \mu_\xi)/\kappa\big)$. Then for each word, we estimated the cumulative word frequency for an individual child based on transcripts of speech to children [@macwhinney2000]. 
+
+@fig-efficiency shows the relationship between cumulative exposures and age of acquisition for the accelerating accumulator. Within each word class (e.g., nouns, verbs, and function words), the number of examples experienced before learning drops exponentially with development.^[Indeed, this analysis likely understates the degree of change in efficiency as it assumes that each exposure to a word is equally meaningful. In fact, individual exposures vary widely in how much information they give. Sometimes words are overheard rather than directed to the child, or lack physical context to allow for clear inference [@cartmill2013;@mollica2017].] In contrast, the fitted pure accumulator predicts a far shallower decline; it cannot reproduce the observed range of acquisition ages, predicting that many early acquired words will not be learned until adolescence (`r si_ref("fig-aoa-m0", "tbl-aoa-m0")`). 
+
+# Language models do not accelerate
+
+```{r fig-llm-acceleration, fig.width=7.5, fig.height=7.8}
+#| label: fig-llm-acceleration
+#| fig-cap: "**Language models (LMs) show no acceleration in their vocabulary growth.**  (A) Density of the acceleration exponent $\\kappa$ for both children (per child, English and Norwegian) and LMs (by word). (B) Variation in acceleration (kappa) across children and LMs. Numbers show coefficients of variation and 95% CIs. (C) Proportional return on training (the ratio of decrease in loss to excess loss) for both children and LMs. Blue lines show LM trajectories; red lines show children's fitted model trajectories from M3. Three children are highlighted in dark red with horizontal uncertainty bands indicating +/- 1 SD in calibration of their input. Logistic acquisition alone can produce some increase in proportional return due to ceiling effects;  these asymptote at 1 (gray dashed line)."
+## LAYOUT/FONT SIZING. out.width="100%" scales every figure to the 6.5in text width, so
+## the on-page font size is base_size * 6.5/fig.width. At the old fig.width=14 that made
+## base_size 11 render at 5.1pt. Dropping to 7.5 (scale 0.87) puts base_size 11 at ~9.5pt
+## and inline annotations at ~9pt once their sizes are bumped to match (geom_text size is
+## in mm: rendered_pt = size * 2.845 * 0.87, so size 3.6 ~ 9pt).
+## Three panels no longer fit side by side at that width, so A and B share the top row and
+## C -- a horizontal dotplot with five population rows that benefits from width -- spans
+## the bottom. Panel letters keep their A/B/C order so the text references still hold.
+
+# Data cached by paper/build_cache.R §6 + build_cache_short.R §8:
+#   sl   -- per-instance kappa (children by child [_a3 M3 BLUPs], LMs by word);
+#           C&B architectures dropped here (SI: Acceleration in Other Architectures)
+#   f3   -- fractional-return curves (panel B)
+#   vy   -- per-learner developmental kappa for the variability panel (panel C):
+#           children (BLUPs) vs one point per LM training run (CHILDES / BabyLM /
+#           ClimbMix ladders)
+sl <- llm_slopes$slopes |>
+  dplyr::filter(group != "LMs: C&B 2022 (4 architectures)") |> droplevels()
+f3 <- llm_slopes$fig3; scaling_par <- llm_slopes$scaling_par
+vy <- llm_slopes$vary
+## Panel C, matched to the warm=children / cool=LMs split used in panels A and B.
+## col_ex is a darkened vermillion for the three highlighted exemplars, so they read
+## as the same population as the background ribbons rather than a fourth series.
+col_child <- "#D55E00"; col_ex <- "#8C3D00"; col_lm <- "#0072B2"
+## Okabe-Ito, warm = children, cool = language models, so the two populations read as
+## groups before any individual colour is decoded. Replaces a red/pink + blue/green set
+## that paired red with green and measured dE 16.1; this is 18.4.
+slope_pal <- c("Children (English)"="#D55E00","Children (Norwegian)"="#E69F00",
+               "LMs: CHILDES (training)"="#0072B2","LMs: CHILDES (development)"="#56B4E9")
+
+## Panel A: acceleration (kappa) densities -- children high & variable, LMs near 1
+pA <- ggplot(sl, aes(slope_natural, fill=group, colour=group)) +
+  geom_density(alpha=0.32, linewidth=0.5) +
+  geom_vline(xintercept=1, linetype="dashed", colour="grey55", linewidth=0.4) +
+  annotate("text", x=1.6, y=0.92, hjust=0, vjust=1, size=3.6, colour="grey45",
+           label="kappa = 1\nunit accumulator") +
+  scale_fill_manual(values=slope_pal, name=NULL) + scale_colour_manual(values=slope_pal, name=NULL) +
+  coord_cartesian(xlim=c(0,22)) +
+  labs(subtitle="Acceleration: children vs. LMs",
+       x="kappa: slope on log(experience)", y="density") +
+  theme_minimal(base_size=11) +
+  theme(legend.position=c(0.66,0.62), legend.text=element_text(size=8.5), legend.key.height=unit(11,"pt"),
+        legend.background=element_rect(fill="white",colour=NA), plot.subtitle=element_text(face="bold"))
+
+## Panel B: fractional return gamma = return / excess loss, at matched absolute input.
+## LMs: gamma = beta (flat). Children: gamma_i(t) -> kappa_i. All eligible English
+## children (wash) + 3 exemplars (low/med/high kappa) with +/-1 SD input-rate ribbons.
+n_child <- dplyr::n_distinct(f3$child_bg$ckey)
+ex_lab <- f3$child_ex |> group_by(ckey) |> slice_max(tokens, n=1) |> ungroup() |>
+  mutate(lab=sprintf("κ=%.0f", kappa))
+pB <- ggplot() +
+  geom_hline(yintercept=1, linetype="dashed", colour="grey55", linewidth=0.4) +
+  geom_line(data=f3$child_bg, aes(tokens, gamma, group=ckey), colour=col_child, alpha=0.04, linewidth=0.35) +
+  geom_line(data=f3$lm_gamma, aes(words, gamma, group=seed), colour=col_lm, alpha=0.5, linewidth=0.5) +
+  geom_ribbon(data=f3$child_ex, aes(y=gamma, xmin=lo, xmax=hi, group=ckey),
+              fill=col_ex, alpha=0.15, orientation="y") +
+  geom_line(data=f3$child_ex, aes(tokens, gamma, group=ckey), colour=col_ex, linewidth=0.85) +
+  ggrepel::geom_text_repel(data=ex_lab, aes(tokens, gamma, label=lab), colour=col_ex, size=3.4,
+                           nudge_x=0.12, direction="y", segment.size=0.2, min.segment.length=0) +
+  annotate("text", x=3.3e6, y=0.60, hjust=0, size=3.5, colour=col_lm, fontface="italic", label="LMs (10 seeds)") +
+  annotate("text", x=3.3e6, y=1.22, hjust=0, size=3.2, colour="grey45", label="unit accumulator ceiling") +
+  annotate("text", x=3.3e6, y=16, hjust=0, size=3.5, colour=col_child, fontface="italic",
+           label=sprintf("all children (n=%d);\n3 exemplars ± input SD", n_child)) +
+  scale_x_log10(breaks=c(3e6,5e6,1e7,2.4e7), labels=c("3M","5M","10M","24M")) +
+  scale_y_log10(breaks=c(0.2,0.3,0.5,1,2,5,10,20)) +
+  coord_cartesian(xlim=c(3e6,2.6e7), ylim=c(0.2,25)) +
+  labs(subtitle="Proportional return across cumulative input",
+       x="cumulative word tokens of input", y="proportional return  γ") +
+  theme_minimal(base_size=11) +
+  theme(plot.subtitle=element_text(face="bold"), panel.grid.minor=element_blank())
+
+## Panel C: between-learner VARIABILITY in developmental kappa. Each point = one
+## learner: a child (fitted kappa_i) or one LM training run (per-ladder median
+## per-word kappa; CHILDES = 10 seeds, BabyLM / ClimbMix = 3 disjoint subsets x
+## 8 seeds each -- the composition control). CV annotations quantify dispersion.
+## Same warm/cool split as slope_pal. The previous set measured dE 11.1 under simulated
+## deuteranopia -- its worst pair was genuinely confusable -- against 17.6 here.
+vpal <- c("Children (English)"="#D55E00","Children (Norwegian)"="#E69F00",
+          "LMs: CHILDES"="#0072B2","LMs: BabyLM"="#56B4E9","LMs: ClimbMix"="#CC79A7")
+## Use the cached bootstrap CIs (build_cache_short.R) rather than recomputing the bare
+## point estimate: a CV from 8-10 seeds, with both mean and variance estimated from fitted
+## kappa, is unstable, so the interval is the honest summary. Resampled over learners
+## within population. Kept terse -- this panel is now half-width.
+## Labels are right-aligned in a gutter beyond every row's data: the children's clouds
+## reach ~55 while the LM rows stop near 3, so the axis is extended to leave clear space
+## on the right. A log axis absorbs the extra decade cheaply, and one shared alignment
+## reads better than five ragged ones.
+lab_cv <- llm_slopes$vary_cv |>
+  mutate(lab = sprintf("%.0f%% [%.0f-%.0f]", cv, cv_lo, cv_hi))
+# CV is computed on ALL learners; the log axis display drops the handful of
+# children whose posterior-median kappa_i is non-positive (8 of 1745).
+pC <- ggplot(vy |> dplyr::filter(kappa > 0),
+             aes(kappa, forcats::fct_rev(population), colour=population)) +
+  geom_jitter(position=position_jitter(height=0.22, seed=1), alpha=0.25, size=0.9) +
+  stat_summary(fun=median, geom="crossbar", width=0.5, linewidth=0.5, colour="grey20") +
+  geom_text(data=lab_cv, aes(x=380, y=forcats::fct_rev(population), label=lab),
+            inherit.aes=FALSE, size=3.0, hjust=1, colour="grey30") +
+  geom_vline(xintercept=1, linetype="dashed", colour="grey55", linewidth=0.4) +
+  scale_x_log10(breaks=c(0.5,1,2,5,10,20,50)) +
+  scale_colour_manual(values=vpal, guide="none") +
+  coord_cartesian(xlim=c(0.4,400)) +
+  labs(subtitle="Variability in acceleration",
+       x="developmental kappa (log scale)", y=NULL) +
+  theme_minimal(base_size=11) +
+  theme(plot.subtitle=element_text(face="bold"), panel.grid.minor=element_blank())
+
+## Fractional return takes the full-width bottom row, per MCF: it is the paper's most
+## original child-LM comparison, so it gets the space. The kappa density and the
+## learner-variability dotplot share the top row.
+##
+## [MCF: panel LETTERS follow POSITION, keeping the usual A-B-C reading order, so the
+##  content behind B and C has swapped. The fig-cap above still describes the OLD order
+##  and needs its (B) and (C) clauses exchanged -- a corrected version is drafted in the
+##  fenced block just below this chunk. Also worth grepping the main text for any
+##  reference to Fig 3 panels by letter.]
+cowplot::plot_grid(
+  cowplot::plot_grid(pA, pC, nrow = 1, labels = c("A", "B"), label_size = 12),
+  cowplot::plot_grid(pB, nrow = 1, labels = "C", label_size = 12),
+  ## rel_heights favours the bottom row: at the old 0.82 the fractional-return panel was
+  ## 7.5 x 2.97in, about 2.5:1. On a log-log panel that aspect flattens the child curves --
+  ## i.e. it visually understates the rise that is the whole finding. At 1.15 the panel is
+  ## ~4.2in tall, about 1.8:1, and the slopes read at closer to their true steepness.
+  nrow = 2, rel_heights = c(1, 1.15))
+```
+
+Do LMs show the same signatures of acceleration and variability as children? To evaluate this question, we begin by building a bridge between well-known "scaling laws" for large language models [@hoffmann2022] and the model we describe here for vocabulary growth. The loss $L$ of a neural network language model on a dataset size $D$ is $L = E + \frac{B}{D^\beta}$, where $B$ and $\beta$ are the free parameters of a power law and $E$ is the entropy of the text being modeled [@hoffmann2022]. This power law scaling behavior can emerge from a set of independently learned "quanta" that are themselves power-law distributed [@michaud2024]; the words of natural language follow such a power law and are potential quanta of this type.
+
+To trace the emergence of individual words in LMs, we fit sigmoidal curves to the trajectory of surprisal values (negative log probability of individual words) across training [following @chang2022]. These sigmoids provide a link to the logistic curves in the Rasch model we used with children. The slope of the sigmoid for each word has the same units as our acceleration parameter $\kappa$ -- it captures how fast evidence for that particular word accumulates with training data. 
+
+We computed the distribution of these slopes on GPT-2 models [@radford2019] trained on 24M words of English child-directed speech from the CHILDES archive [@macwhinney2000;@feng2024;@huebner2021], approximating a three-year-old child's total language input (`r si_ref("fig-si-cb-arch")`). Per-word $\kappa$ estimates computed across training checkpoints clustered around 1 (see @fig-llm-acceleration A, "training" sequence): knowledge about individual words accumulated gradually. This analysis computes learning over multiple training passes through the same dataset, however. We thus trained "developmental" sequences of GPT-2 models. Each model in a sequence was trained to convergence on an increasingly larger subsample of the CHILDES data, ranging from .5M words to 24M words. $\kappa$ values computed across these runs also showed no evidence of acceleration. In contrast, when we applied the same by-word estimator to data from children, we found high $\kappa$ values (`r si_ref("fig-perword-4pl", "tbl-perword-4pl")`). $\kappa$ variation was far higher in children than LMs, even when training data were varied (@fig-llm-acceleration B).
+
+To make a holistic comparison between the growth of individual models (rather than words) and individual children, we computed learners' return on new data. Scaling law analyses describe the change in a model's loss $L$ with respect to the fundamental entropy $E$ of the training data. These can be manipulated to compute a *proportional return*, describing the total amount of remaining possible loss that has been removed by a particular amount of data. To compute this quantity in children, we computed each child's "loss" across all words in the vocabulary, which we aligned to children's estimated input rate over time (`r si_ref("fig-input-age")`). On this analysis, LMs had constant proportional returns, while individual children's proportional returns increased (@fig-llm-acceleration C). 
+
+<!-- Children were highly variable in their trajectories, but we observed almost no variation in acceleration between model runs with different random seeds. To investigate data-related variability we trained new developmental sequences of models on disjoint samples of either the BabyLM mix (a varied dataset designed to mimic the varied registers heard by children) or a standard LM training dataset (ClimbMix). Across all datasets, cross-model variation in acceleration was far more limited than for children . -->
+
+ <!-- We investigated whether this lower level of variability is a fundamental feature of standard LM training regimes or instead reflects the use of a single training dataset that was shared across all models. Because sufficient child-directed training data was not available,  -->
+
+# Discussion
+
+Children's vocabulary growth over early childhood can be described as a process of accelerating accumulation. Knowledge of individual words accumulates over time, but later in development, fewer exposures are needed to acquire a new word. In contrast, LMs -- even trained on data from children -- show no such acceleration. Converted to the same metric, children get increasing returns from additional experience, whereas conventional LMs show constant proportional returns.
+
+What explains the acceleration in children's word learning? During the first three years, children's learning, memory, and speed of processing all change substantially [@hartshorn1998;@bauer2000;@fernald2012;@frank2026]. In the language of our model, these changes would mean that older children's "buckets" require fewer drops to fill them. Changes in the speed and accuracy of word recognition, in particular, are deeply related to children's growing vocabulary; faster processing speed allows children to extract more signal from each incoming utterance [@fernald2012;@frank2026]. All of these changes could lead to some degree of acceleration. 
+
+A second source of acceleration comes from children "learning to learn": using the language they know to become more effective learners. Their increasingly sophisticated inferential abilities also allow them to extract progressively more information from the linguistic signal [@markman1988;@bohn2019]. They learn generalizations that guide their inferences based on regularities in how their language works [@smith2002]. They also use the language they already know in the moment to extract more information from new utterances -- leveraging word meanings [@markman1988], syntactic knowledge [@gleitman1990], and pragmatic inference [@bohn2019] to make sophisticated inferences about gaps in their knowledge [@frank2009;@bloom2002].
+<!-- These inferences dramatically increase the amount of information that a learner can extract from the same data. -->
+
+Simple changes in the quantity or ordering of linguistic input are likely not responsible for acceleration. First, parents do not typically "fine-tune" their language to children's developmental level [@newport2020;@hayes1988]. Second, curricularization of children's language input, either by age or by other heuristics for simplicity fails to increase LM performance [@martinez2023;@feng2024]. Still, broader changes in the richness of input or child-caregiver interaction could facilitate acceleration; these possibilities should be explored.
+
+<!-- Indeed, these sorts of "leverage" mechanisms can change the slope of acceleration in accumulator models [though they cannot create it; @mitchell2009]. -->
+In contrast to children, LMs do not mature developmentally, and it is unclear if standard pre-training provides an analogue to children's growing inferential abilities. While in-context learning abilities emerge, they typically do so only with vastly more data than children receive [@wei2022;@dong2024]. And few-shot rapid word learning may emerge LMs via meta-learning, rather than pre-training [@wang2025]. Establishing linking hypotheses for comparison and alignment of children and LMs is thus a critical goal for further work [@frank2025].
+
+The accelerating accumulator is a parsimonious description of variation in children's vocabulary growth and it accords with the general structure of the learning problem faced by children. But our evidence is based on statistical fit and model comparison, rather than a causal manipulation. More work is required to test the accumulator as a mechanistic account. Further, here we relied on parent report data from the CDI. While CDIs have been extensively validated as a measure of language ability [@fenson1994;@frank2021;@marchman2021], they include variation due to changes in overall verbal production ability as well as vocabulary size. Linking our model to direct measures of vocabulary is an important next step. 
+
+In sum, our study identifies acceleration in learning from experience as a fundamental difference between children and LMs. Characterizing the nature of children's accelerating returns and understanding the circumstances under which it can arise in artificial systems should thus be a focus for future investigation.
+
+# Acknowledgements
+
+**Funding**: Computing for this project was performed on the Sherlock and Marlowe clusters. We would like to thank Stanford University and Stanford Research Computing for providing computational resources and support that contributed to these research results. Funds for computational experiments were also provided by a gift from Meta to support research on children's home language environment. **Author contributions**: M.C.F designed and performed all research and wrote the paper. Claude Code was used for code generation, visualization, and simulation infrastructure. **Competing interests**: The author declares no competing interests. **Data, code, and materials availability**: Reproducible code for this paper is available at \href{}{http://github.com/langcog/standard-model-2}. Data were retrieved from Wordbank using the `wordbankr` package [@frank2017] and CHILDES using the `childesr` package [@sanchez2019]. All trained LMs are available at [https://huggingface.co/mcxfrank/childes-gpt2-ladder]() and [https://huggingface.co/mcxfrank/gpt2-composition-control]().
+
+# List of Supplementary Materials
+
+```{r si-list, echo=FALSE, results="asis"}
+## Science asks for this index immediately after the Acknowledgments, listing the SI by
+## ITEM TYPE rather than by section name -- "Materials and Methods / Supplementary Text /
+## Figs. S1 to SN / Tables S1 to SN".
+##
+## Counted from supplemental.qmd rather than typed, so the ranges cannot drift when a
+## figure or table is added, removed or reordered. Reads chunk labels outside code fences,
+## which is where Quarto's own crossref numbering comes from, so the two agree by
+## construction.
+.si_src <- readLines(here::here("paper", "supplemental.qmd"))
+.n <- function(prefix) {
+  inchunk <- FALSE; k <- 0L
+  for (l in .si_src) {
+    if (grepl("^```\\{", l)) { inchunk <- TRUE; next }
+    if (identical(trimws(l), "```")) { inchunk <- FALSE; next }
+    if (grepl(paste0("^#\\| label: ", prefix, "-"), l)) k <- k + 1L
+  }
+  k
+}
+.rng <- function(n, sing, plur)
+  if (n == 0) NULL else if (n == 1) sprintf("%s S1", sing) else sprintf("%s S1 to S%d", plur, n)
+cat(paste(c("Materials and Methods", "Supplementary Text",
+            .rng(.n("fig"), "Fig.", "Figs."),
+            .rng(.n("tbl"), "Table", "Tables")),
+          collapse = "\n\n"))
+```
+
+# References
+
+::: {#refs}
+:::
+
+
+<!-- :::{.suppinfo} -->
+
+
+<!-- ::: -->
+
+```{=latex}
+\newpage
+\begin{center}
+{\LARGE\bfseries Supplemental Information}
+\end{center}
+```
+
+::: {.content-visible when-format="pdf"}
+<!-- The SI is folded into the PDF for internal review, but Science requires it as a
+     SEPARATE file (docx or PDF are both accepted), so it is excluded from the docx
+     render. paper/science/supplement.qmd builds the standalone SI PDF from the same
+     source, so there is one copy of the SI, not two. -->
+{{< include supplemental.qmd >}}
+:::

@@ -15,8 +15,11 @@
 # Fits are archived on Redivis rather than committed (see journal/ for the dataset).
 # Small text exports and the paper caches ARE tracked, so the manuscript builds
 # without cluster access or a Redivis download.
-fits/**/*.rds
-!fits/**/summaries/*.csv
+# Fits are archived on Redivis (see README), not carried in git -- the manuscript
+# renders from paper/cache/*.rds without them. Ignoring the whole tree rather than
+# whitelisting summaries/*.csv, which would drag ~38 MB of exports into the repo that
+# the Redivis dataset already holds.
+fits/
 figs/**/*.png
 studies/**/stan/*
 !studies/**/stan/

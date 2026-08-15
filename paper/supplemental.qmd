@@ -1,0 +1,875 @@
+```{r si-setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(here); library(dplyr); library(tidyr); library(ggplot2)
+  library(patchwork); library(latex2exp); library(knitr); library(kableExtra)
+})
+source(here("paper", "_helpers.R"))
+si_blups  <- readRDS(here("paper", "cache", "si_blups.rds"))   # per-child BLUPs (M3): xi, kappa
+si_loo    <- readRDS(here("paper", "cache", "si_loo.rds"))     # LOO ladder (M0-M3)
+si_loglin <- readRDS(here("paper", "cache", "si_loglin.rds"))  # log- vs linear-age (M3)
+fig2      <- readRDS(here("paper", "cache", "fig2_efficiency.rds"))  # word efficiency + delta validation
+si_ds     <- readRDS(here("paper", "cache", "si_datasets.rds"))      # datasets table (5 M3 bundles)
+si_gamlss <- readRDS(here("paper", "cache", "si_gamlss.rds"))        # parametric vs GAMLSS overlay + per-child kappa
+si_set    <- readRDS(here("paper", "cache", "si_settings.rds"))      # robustness: 2+/3+/mega x 5 datasets
+si_pooled <- attr(si_set, "pooled")                                 # converged mega hyperparameters (or NULL)
+llm_slopes <- readRDS(here("paper", "cache", "fig6_llm_slopes.rds")) # kappa slopes incl. C&B per-arch (SI: other architectures)
+si_2pl    <- readRDS(here("paper", "cache", "si_2pl.rds"))
+si_f2m0   <- readRDS(here("paper", "cache", "si_fig2_m0.rds"))     # Fig 2 under fitted M0
+si_cvd    <- readRDS(here("paper", "cache", "si_cv_depth.rds"))    # forward-CV depth ladder
+si_qcs    <- readRDS(here("paper", "cache", "si_qc_sensitivity.rds"))  # exclusion sensitivity
+si_inp    <- readRDS(here("paper", "cache", "si_input_stability.rds")) # input rate vs age (4 datasets)
+si_cvh    <- readRDS(here("paper", "cache", "si_cv_headline.rds"))  # forward CV: M2 vs kappa=1
+si_p4pl   <- readRDS(here("paper", "cache", "si_perword_4pl.rds")) # per-word 4-PL, both systems
+si_isub   <- readRDS(here("paper", "cache", "si_item_subset.rds"))  # item-narrowing refits
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center", out.width = "100%", dpi = 300
+)
+```
+
+# Materials and Methods
+
+## Vocabulary data 
+
+All longitudinal datasets with three or more observations per child were included. English (Thal) data are from @thal2013, Norwegian is from @simonsen2014, and Japanese is from @hagihara2023; English (Marchman) and English (Smith) are unpublished datasets available through Wordbank [@frank2017]. We applied a quality filter to exclude administrations that showed either decreases of more than 25% of productive vocabulary or increases that exceeded 40% of total vocabulary per month. This excluded `r n_excl` children in total (`r pct_excl`%), nearly all from the English (Marchman) dataset (`r qc_mar`%; Norwegian `r qc_nor`%, none from the others) (SI: Data Exclusions).
+
+## Bayesian models
+
+Using Stan [@stancite], Bayesian models were fit separately to each dataset per the specification described in the text. The model was parameterized to capture individual children's variation from the population mean such that $\xi_i = \mu_\xi + a_i$ and $\kappa_i = \mu_\kappa + b_i$, where $(a_i, b_i) \sim \mathrm{MVN}(\mathbf 0, \Sigma)$. To facilitate interpretation of the accumulator mechanism, we included the constant $\log H = \log(365) \approx 5.90$ (waking hours/month) and the anchor age $a_0 = 18$ months (so $\log(t/a_0)=0$ at 18 months).
+
+We chose weakly informative priors throughout, including on the efficiency and acceleration parameters $\mu_\xi \sim \mathcal N(-6,\ 5)$ and $\mu_\kappa \sim 1 +  \mathcal N(0,\ 5)$ (centered around the pure accumulator model) as well as the individual child standard deviations $\sigma_a \sim \mathrm{Half\text{-}Normal}(0,\ 3)$ and 
+$\sigma_b \sim \mathrm{Half\text{-}Normal}(0,\ 5)$ and the item difficulties $\tau_\delta \sim \mathrm{Half\text{-}Normal}(0,\ 5)$. We also chose a prior that mildly regularized the correlations between $a_i$ and $b_i$ ($\mathbf L \sim \mathrm{LKJ}(2)$).
+
+All models were fit using cmdstanr, with four independent chains of
+1,000 warmup and 1,000 sampling iterations each (4,000 post-warmup draws) and a target acceptance rate of 0.9. The primary series of models was additionally refit using 2,000 warmup and 8,000 sampling iterations. We assessed convergence using rank-normalized split-$\hat{R}$ and bulk effective sample size. For parameters we interpret (primarily $\kappa$, $\sigma_a$, $\sigma_b$), we required $\hat{R} < 1.01$ and bulk ESS above 400.
+
+
+## Learning efficiency
+
+Age of acquisition for each word was computed based on the weighted average of word difficulties $\delta_j$ from the three fitted M3 models for English. For the population level of $\xi$ and $\kappa$, we computed the earliest age at which there was at least a .5 probability of producing the word. Average exposures per month to each word were computed as $N_j = R \cdot t_{50}(j) \cdot p_j$, where $R$ is the rate of input (words/month), $t_{50}(j)$ is the word-level age of acquisition computed above, and $p_j$ is the word's corpus probability. We used average input estimates derived from @sperry2019 and @hart1995 for our estimate of $R$ (see SI: Input Estimation), and computed $p_j$ from empirical word frequencies in all North American English corpora in childes-db release 2021.1. 
+
+## Language model training
+
+Following @feng2024, we fit randomly-initialized \texttt{GPT-2-small} (124M parameters) models, using the 24M-word (~47M-token) preparation of English-language CHILDES data from that study. Consistent with the previous work, we included children's own utterances in the training data. Children do in fact hear their own speech; more importantly, removing one side of every interaction would create disjoint, unnatural training data. We also fit models to the 2nd BabyLM challenge dataset (downloaded from [osf.io/ad7qg](), with CHILDES data removed) [@hu2024] and the ClimbMix dataset (available at [https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle]()) [@diao2025]. We constructed three disjoint subsets of 24M words from each.
+
+For comparability, all data were tokenized using a standard BPE tokenizer trained on the full CHILDES dataset (all 24M). Surprisal was computed as the mean per-word negative log likelihood over ~50 held-out validation contexts (last 128 tokens each) for the 609 CDI words that were used in @chang2022 and that appeared in the training data with sufficient frequency in the CHILDES held-out contexts. Surprisal values for sigmoid fits were read out from the epoch with the lowest validation loss.
+
+For the computation of surprisal across training runs ("training"), we trained models using 3 random seeds on the full dataset. For the computation across different dataset sizes ("development"), the data were segmented into 18 nested datasets ranging in size from .5M to the full 24M. We then chose 10 random seed values and trained 10 models on each dataset for a total of 180 models. For the computation of variability across model runs ("composition"), we ran 8 random seed values across 12 nested dataset sizes for three disjoint subsets of both BabyLM and ClimbMix, resulting in 8 (seeds) x 12 (sizes) x 3 (subsets) x 2 (datasets) = 576 distinct models.
+
+Models were trained for a total of 20 epochs with sequence length 1024 and batch size 8, using AdamW for optimization and learning rate of 1e-4 with a linear decay, no warmup, weight decay of 0, and no in-epoch shuffling. Training was performed on NVIDIA A40 GPUs.
+
+## Proportional Return on Input
+
+Proportional return on input was computed for models based on mean surprisal $L(D)$ of the CDI words after training on
+$D$ word tokens of input. This follows the form from @hoffmann2022 of $L(D) = E + B\,D^{-\beta}$, with $E$ the irreducible entropy floor and $B, \beta$ fit across budgets (here $E \approx 2.94$ nats, $B \approx 312$, $\beta \approx 0.32$,
+$R^2 = 0.998$). The excess loss $L(D) - E = B\,D^{-\beta}$ is the reducible
+part that training removes; it falls as a power law of slope $-\beta$. Marginal return is the loss removed per $e$-fold of data, 
+
+$$R(D) = -\frac{\mathrm{d}L}{\mathrm{d}\ln D} = \beta\,\big(L(D) - E\big),$$
+
+\noindent obtained by differentiating the scaling law. We compute the ratio of this quantity to the excess loss, obtaining the proportional return: the share of the remaining reducible loss removed
+per $e$-fold, $\gamma_{\text{LM}}(D) = \frac{R(D)}{L(D) - E} = \beta.$
+For a power law, this is constant: $\gamma_{\text{LM}} = \beta \approx 0.32$
+at every budget, recapitulating the scaling law.
+
+We can compute the same quantity for children. We define a vocabulary production
+loss, $L_i(t) = \operatorname{mean}_j[-\log p_{ij}(t)]$, whose floor is zero
+(a known word is produced, $p \to 1$). Its marginal return is
+$R_i(t) = -\mathrm{d}L_i/\mathrm{d}\log t = \kappa_i\,\operatorname{mean}_j(1 - p_{ij})$,
+so the proportional return is
+$$\gamma_i(t) = \frac{R_i(t)}{L_i(t)}
+ = \kappa_i\,\frac{\operatorname{mean}_j(1 - p_{ij})}{\operatorname{mean}_j(-\log p_{ij})},$$
+which rises toward the child's own $\kappa_i$ as the vocabulary saturates.
+
+## Computing Acceleration in LMs
+
+To compare acceleration in LMs and children, we link the $\kappa$ parameter from our accelerating accumulator model to the word-by-word learning performance of LMs. We first focus on the slope for individual words rather than individual children. Starting with the M3, differentiating $\eta_{ij}(t)$ (the probability of producing a particular word) with respect to $\log t$ gives $\kappa_i$:
+the logit-probability that a child produces a word rises linearly in
+log-age with slope equal to the child's scaling exponent. Thus, the per-child
+sigmoid slope *is* $\kappa_i$, by construction.
+
+Next, to estimate the slope of acquisition of individual words, @chang2022 compute surprisal for each word across LM training checkpoints and then fit a four-parameter logistic, $s_w(x) = \ell_w + (u_w-\ell_w)/(1+\exp((x-m_w)/\mathrm{scale}_w))$, in $x = \log_{10}$ training data. Let $p_w = (s_w-\ell_w)/(u_w-\ell_w)$ be the fraction of that word's surprisal reduction still outstanding. The LM slope is therefore $d\,\mathrm{logit}(p_w)/d\ln D = 1/(\mathrm{scale}_w \ln 10)$ — a logit per unit of natural-log input. That is the same as  $\kappa_i$ for children, where the logit probability of producing a word rises in log-age with slope $\kappa_i$ and the outstanding fraction is $1-P(\text{produce})$. 
+
+# Supplementary Text
+
+## Comparison with Prior Models
+
+Our accelerating accumulator model has not been described in the literature in the exact form we use, but it is closely related to other models. Here we describe these models as special cases of our model. We write the latent ability of child $i$ on word $j$ at age $t$ as
+
+$$\eta_{i,j}(t) = \log r_i + \log \alpha_i + \kappa_i \log t - \delta_j,$$
+where $r_i$ and $\alpha_i$ decompose the term $\xi_i$ in our model: $r_i$ is the input rate for the child and $\alpha_i$ is their learning efficiency. Several prior accumulator models can then be seen as special cases in which one or more of these components is fixed:
+
+* @mcmurray2007 is a pure accumulator in which $\kappa=1$ and children do not differ from one another ($\sigma_{\alpha}=\sigma_{\kappa}=0$), so both input rate and efficiency reduce to a constant, corresponding to our M0. 
+* @hidaka2013 introduces a model in which ability grows as $t^{D+1}$, creating acceleration. This exponent is exactly our $\kappa$, and this model is equivalent to our M1.
+* @kachergis2022 present our M2: they allow $\alpha$ to vary across individuals, but not $\kappa$. 
+
+In addition, several other models in the literature can be described as variants of this framework:
+
+* @mitchell2009 augment the pure M0 accumulator with a "leverage" term, in which words learned earlier facilitate the learning of later words. Their central result is a negative one: leverage changes the shape and timing of vocabulary growth, but it cannot create acceleration that is not already present in the distribution of word difficulties. 
+* @mollica2017 define a pure accumulator model with $\kappa=1$, but with an additional parameter relating to the speed of per-word accumulation. This model maps onto a combination of our M0 and the 2-parameter logistic variant that we fit below.
+
+## Non-identifiability in Cross-Sectional Data
+
+Since acceleration is a property of change over time, a single cross-sectional observation from an individual child cannot identify the child's acceleration. As @fig-cross-sectional-confound shows, a single observation from a child could be accounted for by variation in either $\xi_i$ (efficiency) or $\kappa_i$ (acceleration). 
+
+```{r fig-cross-sectional-confound, fig.width=9, fig.height=4}
+#| label: fig-cross-sectional-confound
+#| fig-cap: "Non-identifiability of growth models in cross-sectional data. Panels show the same simulated data, reflecting the possibility of stable between-child intercept differences (A) vs. varying growth slopes (B)."
+# Why longitudinal data are needed to identify per-child acceleration.
+#
+# A single cross-sectional snapshot — one ability estimate per child at
+# their observed age — is consistent with qualitatively different
+# individual-trajectory structures. We draw ONE set of cross-sectional
+# points (identical in both panels) and overlay two generative stories
+# that each pass through every point exactly:
+#   (A) stable between-child differences: every child shares the
+#       population slope and differs only in intercept (parallel lines);
+#   (B) diverging trajectories: every child starts from a common early
+#       ability and differs in slope (a fan).
+# With one observation per child the two are indistinguishable — only
+# repeated measurement of the same child reveals which holds.
+
+set.seed(42)
+N         <- 28
+a0        <- 6                       # reference age; log(t/a0) > 0 over 8-30
+kappa_pop <- 2.5                     # population acceleration (slope on log-age)
+sigma_xi  <- 1.0                     # between-child intercept spread
+
+ages_obs <- runif(N, 8, 30)
+L_obs    <- log(ages_obs / a0)
+# cross-sectional cloud: ability rises with log-age + between-child noise
+theta_obs <- kappa_pop * L_obs + rnorm(N, 0, sigma_xi)
+pts <- data.frame(age = ages_obs, theta = theta_obs)
+
+age_grid <- seq(8, 30, length.out = 60)
+L_grid   <- log(age_grid / a0)
+
+# (A) parallel: each child same slope kappa_pop, intercept set to hit point
+parallel <- bind_rows(lapply(seq_len(N), function(i) {
+  xi <- theta_obs[i] - kappa_pop * L_obs[i]
+  data.frame(child = i, age = age_grid, theta = xi + kappa_pop * L_grid)
+}))
+
+# (B) fanning: common early origin theta0, slope set to hit point
+theta0 <- min(theta_obs) - 1.5       # origin below the cloud so all slopes > 0
+fanning <- bind_rows(lapply(seq_len(N), function(i) {
+  kappa_i <- (theta_obs[i] - theta0) / L_obs[i]
+  data.frame(child = i, age = age_grid, theta = theta0 + kappa_i * L_grid)
+}))
+
+yr <- range(theta_obs) + c(-1, 1)
+mk <- function(traj, ttl) {
+  ggplot() +
+    geom_line(data = traj, aes(age, theta, group = child),
+              color = "#2b8cbe", alpha = 0.35, linewidth = 0.3) +
+    geom_line(data = data.frame(age = age_grid,
+                                theta = kappa_pop * L_grid +
+                                        (mean(theta_obs) - kappa_pop * mean(L_obs))),
+              aes(age, theta), linetype = "dashed",
+              color = "grey45", linewidth = 0.4) +
+    geom_point(data = pts, aes(age, theta), size = 1.3, color = "grey15") +
+    coord_cartesian(ylim = yr) +
+    labs(x = "age (months)", y = expression(ability~theta), title = ttl) +
+    theme_minimal(base_size = 10) +
+    theme(plot.title = element_text(size = 10, face = "bold"),
+          panel.grid.minor = element_blank())
+}
+
+mk(parallel, "(A) stable between-child differences (intercepts vary)") +
+mk(fanning,  "(B) diverging trajectories (slopes vary)")
+```
+
+## Datasets
+
+Table -@tbl-datasets gives the characteristics of each dataset used. In the main text we focus on children with three or more administrations (for more precise estimates of $\kappa$), but below we also confirm the robustness of our claims including children with two or more administrations. 
+
+```{r tbl-datasets}
+#| label: tbl-datasets
+#| tbl-cap: "Characteristics of all datasets used in the paper. N and ages reflect the analysis samples (post-exclusion). Adm/Chi gives the median administrations per child."
+
+# Built by paper/build_cache_short.R (section 6, si_datasets.rds) from the five
+# longitudinal M3 bundles -- the single source now that the io/proc/cross-sectional
+# analyses are cut (replaces the retired build_table1.R / table1_datasets.csv).
+# Citation column is plain text (kable can't render [@key]); bib keys live in the
+# YAML `nocite:`.
+# N column now reports BOTH the main-text analysis sample (>=3 administrations, the
+# subset where per-child acceleration is identified) and the full longitudinal sample
+# (>=2 administrations), as "n_3+ / n_2+". This makes the exclusion legible: it is a
+# modeling requirement, not a small dataset (Marchman is 162 of 2,136). n_kids_all
+# comes from the 2+ bundles (build_cache_short.R, si_datasets.rds).
+# [MCF: (a) Thal/Smith/Marchman citation years are 20XX placeholders (@smith/
+#  @marchman keys still missing from the bib). (b) the caption still describes the OLD
+#  multi-analysis table AND now needs to define the "N (3+/2+)" column -- rewrite for
+#  the 5 longitudinal datasets. (c) the both-N column addresses the earlier
+#  N-reconciliation note: the 3+ analysis total is 1,841; the 2+ total is 4,922.]
+si_ds <- si_ds |>
+  transmute(citation, language,
+            n = sprintf("%s / %s", format(n_kids, big.mark = ","),
+                        format(n_kids_all, big.mark = ",")),
+            n_admins = format(n_admins, big.mark = ","),
+            mean_age = sprintf("%.1f", mean_age),
+            min_age = as.character(min_age), max_age = as.character(max_age),
+            med_admins = as.character(med_admins)) 
+
+si_ds$citation[1:3] <- c("Thal (Wordbank)", "Smith (Wordbank)", "Marchman (Wordbank)")
+
+si_ds |>
+  ## format/booktabs as for the other tables: APA rules, no vertical or per-row lines.
+  knitr::kable(
+    format = "latex", booktabs = TRUE,
+    col.names = c("Citation", "Language", "N (3+/2+)", "Admins",
+                  "Mean", "Min", "Max", "Adm/Chi"),
+    align = "llrrrrrr") |>
+  kableExtra::add_header_above(c(" " = 4, "Age (months)" = 3, " " = 1)) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+Fig. -@fig-qc shows the full spaghetti plots for each dataset, highlighting in red those observations that failed our quality check and were excluded. We speculate that these observations are due to either data entry issues or faulty correspondences between observations. Such issues occur frequently in archival datasets and affect only a small portion of our data. 
+
+```{r fig-qc}
+#| label: fig-qc
+#| fig-width: 11
+#| fig-height: 3.6
+#| fig-cap: "Data-quality exclusions. Red lines show children excluded from the analysis entirely, with red dots marking flagged administrations; gray lines are a random sample of retained children, shown for reference."
+#
+# What the colours mean (checked against studies/bayes_long/qc_exclusion_report.R):
+#   red  = `bad`, i.e. children with FEWER THAN TWO administrations surviving the
+#          filter, so they leave the analysis altogether (62 of 4,984 = 1.2%);
+#   grey = a random SAMPLE of retained children (N_SPAG per dataset), not all of them.
+# So this figure shows the dropped children, NOT all 140 removed administrations --
+# administrations flagged inside a child who still survives are not drawn.
+TR <- readRDS(here("paper", "cache", "qc_spaghetti_data.rds"))
+ggplot() +
+  geom_line(data = subset(TR, !bad), aes(age, v, group = ckey), color = "grey70", alpha = 0.20, linewidth = 0.25) +
+  geom_line(data = subset(TR,  bad), aes(age, v, group = ckey), color = "#d7191c", alpha = 0.70, linewidth = 0.40) +
+  geom_point(data = subset(TR, bad & !keep), aes(age, v), color = "#d7191c", size = 0.7) +
+  facet_wrap(~dataset, nrow = 1) + scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "Age (months)", y = "Proportion of items produced") +
+  theme_minimal(base_size = 9) +
+  theme(strip.text = element_text(face = "bold"), panel.grid.minor = element_blank())
+```
+
+## Full Model Comparison Results
+
+
+Table -@tbl-loo gives the full leave-one-out model comparison results across models for both the dataset with 3+ administrations/child and the larger dataset with 2+ administrations/child. 
+
+```{r tbl-loo}
+#| label: tbl-loo
+#| tbl-cap: "Bayesian leave-one-out (LOO) model comparison. Each cell is the difference in expected log predictive density (ELPD) relative to the best model (M3), with the standard error of the difference in parentheses; more negative is worse. Every step of the ladder improves fit in every dataset, and the full model M3 (per-child efficiency *and* acceleration) is preferred throughout. Built from the per-fit LOO objects (paper/build_cache_short.R)."
+short <- c("English (Thal)" = "Thal", "English (Smith)" = "Smith",
+           "English (Marchman)" = "Marchman", "Norwegian" = "Norwegian",
+           "Japanese" = "Japanese")
+mod_desc <- c(M0 = "M0. accumulator ($\\kappa=1$)",
+              M1 = "M1. + acceleration",
+              M2 = "M2. + efficiency var.",
+              M3 = "M3. + acceleration var.")
+lang_order <- levels(si_loo$lang)
+cell <- function(m, e, s) ifelse(m == "M3", "0",
+  sprintf("%s (%s)", format(round(e), big.mark = ","), format(round(s))))
+# Both thresholds are shown: the >=3-admin ladder (main text, where per-child slopes
+# are identified) and the full >=2-admin ladder. They are stacked with pack_rows --
+# 4 model rows per threshold, 5 dataset columns -- rather than doubling the columns.
+# M3 wins every rung at both thresholds. (Raw ELPD scales with n_obs, so the 2+ gaps
+# are larger mainly because the 2+ samples are larger; the per-observation comparison
+# lives in the settings table.)
+# [MCF: the caption should note the table now stacks both admin thresholds.]
+tab <- si_loo |>
+  mutate(txt = cell(as.character(model), elpd_diff, se_diff)) |>
+  arrange(threshold, model) |>
+  select(threshold, model, lang, txt) |>
+  tidyr::pivot_wider(names_from = lang, values_from = txt) |>
+  mutate(Model = mod_desc[as.character(model)])
+n3 <- sum(tab$threshold == "3+")
+knitr::kable(tab |> select(Model, all_of(lang_order)), format = "latex", booktabs = TRUE,
+             align = c("l", rep("r", length(lang_order))), escape = FALSE,
+             col.names = c("Model", unname(short[lang_order]))) |>
+  kableExtra::add_header_above(
+    c(" " = 1, "$\\\\Delta$ELPD vs M3 (SE)" = length(lang_order)), escape = FALSE) |>
+  kableExtra::pack_rows("$\\geq$3 administrations (main text)", 1, n3, escape = FALSE) |>
+  kableExtra::pack_rows("$\\geq$2 administrations (full longitudinal)",
+                        n3 + 1, nrow(tab), escape = FALSE) |>
+  kableExtra::kable_styling(latex_options = "scale_down", font_size = 8)
+```
+
+## Individual-level Cross-validation
+
+The model comparisons above report ELPD LOO values for held-out data from individual item-responses, which are nested within children. To assess the value of M3 (the accelerating accumulator) in making fully out-of-sample predictions, we designed a prospective test. As our data, we selected a subset of the Norwegian sample that included 371 children with $\geq 6$ longitudinal CDIs. We then fit models to the child's most recent $k$ observations and used these to predict the child's next administration (3 months later). This design avoids confounding data density with the gap between the fitted and predicted observations. 
+
+Results from this analysis are shown in @tbl-cv-depth. The result is very sensitive to the value of $k$ used. With $k=2$, the fixed slope model (M2) clearly predicts better because the per-child slope model (M3) fully parameterizes the two observations per child and absorbs measurement error as a result. This effect decreases as $k$ increases until the two models are tied by $k=5$. We expect that with even denser data, a separate slope parameter would lead to individually better fits, but in practice the single slope model makes acceptable predictions. 
+
+Importantly, because both M2 and M3 contain a population acceleration parameter, this analysis does not test for the presence of acceleration. Instead it suggests that measuring the precise amount of acceleration each child is undergoing requires sustained, precise longitudinal measurement. 
+
+```{r tbl-cv-depth}
+#| label: tbl-cv-depth
+#| tbl-cap: "Prospective cross-validation for Norwegian children with at least six administrations (n = 371). Each row describes a model fit to k administrations and scored on the child's held-out final sitting. dELPD/child is the per-child difference in expected log predictive density, full model minus shared-slope model; negative favors the shared slope. sigma_b is the between-child acceleration SD in the training fit, against a full-data value of 5.65."
+## Both ladders, stacked. The 'recent' (last-k) one is the interpretable test; 'earliest'
+## (first-k) is shown because the contrast isolates how much of the cost is extrapolation
+## distance rather than flexibility.
+lab <- c(last = "recent k (horizon fixed)", first = "earliest k (horizon shrinks)")
+cvt <- si_cvd |>
+  filter(horizon ==3) |>
+  mutate(mode = factor(lab[as.character(mode)], levels = unname(lab))) |>
+  arrange(mode, k) |>
+  transmute(mode, k = as.character(k),
+            horizon = sprintf("%.0f", horizon),
+            d = sprintf("%+.2f", diff_per_child), se = sprintf("%.2f", diff_se),
+            z = sprintf("%+.1f", diff_z), pct = sprintf("%.0f", pct_better),
+            sb = sprintf("%.2f", sigma_b))
+n_last <- sum(cvt$mode == lab[["last"]])
+knitr::kable(cvt |> select(-mode), format = "latex", booktabs = TRUE, escape = FALSE,
+             align = c("r", "r", "r", "r", "r", "r", "r"),
+             col.names = c("$k$", "horizon (mo)", "$\\Delta$ELPD/child", "SE", "$z$",
+                           "\\% children better", "$\\sigma_b$")) |>
+  #kableExtra::pack_rows(lab[["last"]], 1, n_last) |>
+  # kableExtra::pack_rows(lab[["first"]], n_last + 1, nrow(cvt)) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+We next tested whether acceleration plays an identifiable role in predicting individual children's trajectories at all. We therefore fit M2$_0$, a variant of M2 with the acceleration exponent constrained to the pure
+accumulator value ($\kappa = 1$) --- rather than the population acceleration rate -- while retaining the per-child efficiency term $\xi_i$. The comparison of M2 and M2$_0$ thus tests the hypothesis that acceleration is predictive of individual trajectories. Table -@tbl-cv-headline shows the results of this comparison. M2, the accelerating model, predicted held-out administrations better at every depth. 
+
+
+```{r tbl-cv-headline}
+#| label: tbl-cv-headline
+#| tbl-cap: "Prospective cross-validation of acceleration, on the same Norwegian children and held-out administrations as @tbl-cv-depth. M2 retains a free population acceleration exponent; M2-zero removes it. dELPD/child is the per-child difference in expected log predictive density, M2 minus M2-zero; positive favors acceleration."
+## Built from paper/cache/si_cv_headline.rds (studies/bayes_long/08_cv_headline_report.R).
+##
+## Deliberately parallel to tbl-cv-depth above: same children, same held-out sittings,
+## same k rungs and fixed 3-month horizon, so the two tables can be read against each
+## other directly. sigma_b is omitted because neither model here has a per-child slope
+## for it to describe.
+##
+## The fcv4 setting is NOT a row: it uses a different sample (>=4 administrations,
+## n = 602) and does not hold the horizon fixed, so stacking it into a depth ladder
+## would invite a comparison across rows that the design does not support. It is
+## reported in the surrounding text instead.
+cvh <- si_cvh |>
+  dplyr::filter(comparison == "m2 - m2k1", grepl("^fcv6lk", tag)) |>
+  dplyr::mutate(k = as.integer(sub("^fcv6lk", "", tag))) |>
+  dplyr::arrange(k) |>
+  dplyr::transmute(k = as.character(k),
+                   horizon = sprintf("%.0f", horizon_med),
+                   d = sprintf("%+.2f", diff_per_child),
+                   se = sprintf("%.2f", diff_se),
+                   z = sprintf("%+.1f", diff_z),
+                   pct = sprintf("%.0f", pct_child_better))
+knitr::kable(cvh, format = "latex", booktabs = TRUE, escape = FALSE,
+             align = c("r", "r", "r", "r", "r", "r"),
+             col.names = c("$k$", "horizon (mo)", "$\\Delta$ELPD/child", "SE", "$z$",
+                           "\\% children better")) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## Comparison to a Non-Parametric Quantile Model
+
+To test whether the accelerating accumulator appropriately fits the distribution of growth curves across children, we compared against a strong baseline: the flexible non-parametric GAMLSS family that is used to produce normative curves for the CDI [@marchman2021]. Specifically, for each dataset we fit a GAMLSS beta-regression of the proportion of words produced by the child's age. We used a penalized spline function on the mean and on the scales.
+
+Fig. -@fig-gamlss-overlay shows that across all five datasets the M3 fit (blue) tracks both the non-parametric GAMLSS fit (orange) and the empirical quantiles (circles). Thus, the accelerating accumulator
+is a faithful, low-dimensional compression of the data's quantile structure.
+
+```{r fig-gamlss-overlay, fig.width=13, fig.height=3.5}
+#| label: fig-gamlss-overlay
+#| fig-cap: "M3 fits (blue, drawn from fitted per-child acceleration) vs. non-parametric GAMLSS beta-regression (orange), with empirical 10th/50th/90th percentiles (open circles). Lines are the 10/50/90 percentiles of each model. Color denotes model."
+
+ll <- si_gamlss$overlay$lines |> dplyr::filter(model != "M3 (MVN draw)") |>
+  tidyr::pivot_longer(c(q10, q50, q90), names_to = "pct", values_to = "v") |>
+  dplyr::mutate(dataset = factor(dataset, levels = si_gamlss$levels))
+empd <- si_gamlss$overlay$emp |> dplyr::mutate(dataset = factor(dataset, levels = si_gamlss$levels))
+ggplot() +
+  geom_point(data = empd, aes(age, v), shape = 1, size = 1.2, stroke = .6, color = "grey25") +
+  geom_line(data = ll, aes(age, v, color = model, group = interaction(model, pct)), linewidth = .7) +
+  facet_wrap(~dataset, nrow = 1) +
+  scale_color_manual(values = c("M3 (fitted-κ)" = "#2c7fb8", "GAMLSS (auto-λ)" = "#d95f02"), name = NULL) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "Age (months)", y = "Proportion of items produced") +
+  theme_minimal(base_size = 9) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(), strip.text = element_text(face = "bold"))
+```
+
+## Robustness Across Model and Data Settings
+
+In the main text, we report fits to children with 3+ administrations with separate models fit to each dataset, but our parameter estimates were substantially similar across two other settings: first, separate fits to children with 2+ administrations, and second, a full hierarchical model fit to children with 3+ administrations. Table -@tbl-settings shows LOO fits and the robustness of the $\kappa$ estimates across these different settings. 
+
+The pooled model was structured similarly to the by-dataset models, but children and words were modeled as nested within their own dataset. Each dataset had its own mean $\xi$ and $\kappa$ values. Dataset-level standard deviations on efficiency and acceleration ($\sigma_a$ and $\sigma_b$) were distributed as $\log \sigma_{a[d]} \sim \mathcal N(m_a, s_a)$ and $\log \sigma_{b[d]} \sim \mathcal N(m_b, s_b)$, so a dataset with few children had its estimated spread drawn toward the typical value across datasets, while a dataset with many children was left essentially unconstrained. The item-difficulty distribution was estimated separately within each dataset, since the different datasets reflect data from different languages. Overall, the pooled model reproduced the parameters of the independent fits closely. 
+
+```{r tbl-settings}
+#| label: tbl-settings
+#| tbl-cap: "For each dataset and setting: number of children (N), population acceleration ($\\kappa$), between-child acceleration SD ($\\sigma_b$), and the per-observation LOO advantage of the full model M3 over M2 ($\\Delta$ELPD per item response)."
+# Per-observation gap is the only cross-setting-comparable LOO quantity (raw ELPD
+# scales with n_obs). Mega rows carry no M2 rung -> gap is "---".
+# The asterisk that used to flag pooled rows with slow per-dataset scale mixing
+# (max_rhat > 1.1) has been removed per MCF; max_rhat is still carried in
+# si_settings.rds if it is ever wanted back.
+sset <- si_set |>
+  mutate(
+    Setting = dplyr::recode(as.character(setting),
+      "2+ separate" = "$\\geq$2 separate",
+      "3+ separate" = "$\\geq$3 separate (main text)",
+      "mega (3+)"   = "pooled ($\\geq$3)"),
+    N   = format(n_kids, big.mark = ","),
+    kap = sprintf("%.1f", kappa),
+    ## The pooled rows now carry intervals: the centred refit mixes well enough to report
+    ## them (sigma_b rhat 1.006-1.057), which the non-centred original did not. Separate
+    ## fits show the point estimate alone, as before, so the added interval marks exactly
+    ## where the extra information comes from.
+    sb  = ifelse(is.na(sigma_b_lo), sprintf("%.2f", sigma_b),
+                 sprintf("%.2f [%.2f, %.2f]", sigma_b, sigma_b_lo, sigma_b_hi)),
+    gap = ifelse(is.na(gap_per_obs), "---", sprintf("%.4f", gap_per_obs)))
+grp <- table(droplevels(si_set$dataset))                 # rows per dataset, factor order
+knitr::kable(sset |> select(Setting, N, kap, sb, gap), format = "latex", booktabs = TRUE,
+             col.names = c("Setting", "N", "$\\kappa$", "$\\sigma_b$",
+                           "$\\Delta$ELPD/obs (M2$\\to$M3)"),
+             align = c("l", "r", "r", "r", "r"), escape = FALSE) |>
+  kableExtra::pack_rows(index = setNames(as.integer(grp), names(grp)), escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## Sensitivity to Data-Quality Exclusions
+
+To ensure that the exclusion filter we used in the main text does not result in significant changes to our estimates, we refit the model at four settings: with the filter disabled entirely, at a loose threshold, at the reported threshold, and at a tight one (@tbl-qc-sensitivity). These refits apply only to two datasets, English (Marchman) and Norwegian. The exclusion filter does not result in major changes to $\kappa$ estimates in either case. 
+
+```{r tbl-qc-sensitivity}
+#| label: tbl-qc-sensitivity
+#| tbl-cap: "Population acceleration and between-child acceleration SD by data-quality filter setting, for the two datasets in which the filter removes observations. The loose filter removes children with a decline of more than 40% below a child's running peak or a rise of more than 60 percentage points per month; the main filter uses a decline of 25% and a rise of 40%, as reported in the Methods; and the tight filter uses 15% and 25%."
+## Restricted to Marchman and Norwegian per MCF: the filter removes nothing in Japanese and
+## 1-2 administrations in Thal/Smith only at the tightest setting, so those rows would show
+## an unchanged estimate purely because nothing was changed. The prose reports that fact
+## rather than spending nine table rows on it.
+## No dagger: the earlier flag used max rhat over ALL parameters, which condemned two cells
+## whose reported quantities are fine. Across all 20 cells kappa_pop has rhat <= 1.003 and
+## sigma_b <= 1.058; the max-over-all laggard is always tau_delta, which is not reported.
+qct <- si_qcs |>
+  filter(slug %in% c("marchman", "norwegian")) |>
+  mutate(kap = sprintf("%.2f", kappa),
+         sb  = sprintf("%.2f", sigma_b),
+         rem = as.character(admins_removed)) |>
+  arrange(lang, setting)
+grp <- table(droplevels(qct$lang))
+knitr::kable(qct |> select(setting, rem, kap, sb), format = "latex", booktabs = TRUE,
+             escape = FALSE, align = c("l", "r", "r", "r"),
+             col.names = c("Filter", "Removed", "$\\kappa$", "$\\sigma_b$")) |>
+  kableExtra::pack_rows(index = setNames(as.integer(grp), names(grp))) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## Linear vs. Logarithmic Age
+
+We additionally fit M3 variants with linear, rather than logarithmic, growth in acceleration over time. Table -@tbl-loglin shows that the linear model was dispreferred across all five datasets. 
+
+```{r tbl-loglin}
+#| label: tbl-loglin
+#| tbl-cap: "Log-age vs linear-age accumulation. LOO ELPD advantage of the log-age model (M3) over its linear-age counterpart, with SE; positive favors log-age."
+short <- c("English (Thal)" = "Thal", "English (Smith)" = "Smith",
+           "English (Marchman)" = "Marchman", "Norwegian" = "Norwegian",
+           "Japanese" = "Japanese")
+tab <- si_loglin |>
+  mutate(Dataset = unname(short[as.character(lang)]),
+         adv = sprintf("%s (%s)", format(round(-elpd_diff), big.mark = ","),
+                       format(round(se_diff)))) |>
+  select(Dataset, adv)
+knitr::kable(tab, format = "latex", booktabs = TRUE, align = c("l", "r"), escape = FALSE,
+             col.names = c("Dataset", "$\\Delta$ELPD (log $-$ linear)")) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## 2PL Model Comparison
+
+In the main analysis we use a Rasch (1PL) item model, in which every word has a difficulty but all words have equal discrimination between children. @kachergis2022b found that a 2PL model, which adds a per-word discrimination $\lambda_j$, was preferred over the 1PL for CDI data. We therefore refit M3 with a per-word discrimination parameter.
+
+Table -@tbl-2pl shows the results of this comparison. The 2PL does genuinely fit better, with substantial differences in LOO ELPD for every language. However, model results are otherwise unchanged. Estimates of $\kappa$ increase somewhat, but they are not directly comparable across item models. In normal IRT models, ability scores are constrained to a standard normal distribution, but in our model, abilities grow over time so there is no single standard scale, and the addition of the discrimination parameter can change the overall scale. For this reason, we report $\log \kappa$, since a pure change of units would be a constant shift. In addition, across individual words, we find that the predicted age of acquisition (the age at which the word is predicted to have a 50% probability of being known) is closely aligned, suggesting that the models are highly comparable. 
+
+Critically, $\delta$ (difficulty) and $\lambda$ (discrimination) correlations were small to modest. If harder words were substantially more discriminating, this correlation could inflate estimates of $\kappa$ in the 1PL model; in practice we find little support for this hypothesis.
+
+```{r tbl-2pl}
+#| label: tbl-2pl
+#| tbl-cap: "Rasch (1PL) versus two-parameter logistic (2PL) item models, M3 refit on the same data. Discrimination: SD of $\\log \\lambda_j$, its 10th-90th percentile range on the natural scale, and its correlation with item difficulty (90% interval). Acceleration: population $\\kappa$ under each item model and the difference in $\\log \\kappa$. Age of acquisition: correlation and median absolute difference in per-word $t_{50}$, which is invariant to the discrimination scale. LOO: expected log predictive density of the 1PL relative to the 2PL, with SE; negative favors the 2PL."
+## Everything comes from paper/cache/si_2pl.rds (studies/bayes_long/03_compare_1pl_2pl.R).
+## The table renders whatever datasets have BOTH fits; rerun that script to fill in any
+## still pending. [MCF: Norwegian's 2PL was still running when this was written.]
+##
+## Column choices worth knowing:
+##  - d log kappa, not the kappa ratio: a pure change of units is one multiplicative
+##    factor, i.e. a CONSTANT additive shift in log kappa. Constancy across datasets is
+##    therefore the diagnostic for "units" vs "the 2PL revises the growth story".
+##  - t_50 rather than kappa for the substantive comparison: solving theta(t) = delta_j
+##    gives log(t_50/a0) = (delta_j - log_H - mu_xi)/kappa, in which lambda_j does not
+##    appear at all, and which is invariant under the lambda rescaling. It is also the
+##    quantity Fig 2 is built from.
+##  - LOO sign: elpd_diff is the loser's deficit, and the 2PL wins everywhere so far,
+##    so the printed value is the 1PL's deficit (negative).
+## Word-level acquisition slopes lambda_j * kappa_i, added at reviewer request: in the
+## 2PL, d eta / d log(t) = lambda_j * kappa_i, so this is the per-word, per-child slope
+## that the child-LM comparison actually rests on. The 1PL is the lambda == 1 case where
+## it collapses to kappa_i. Reported as the median over every word x child pair and the
+## share of pairs still above the pure-accumulator value of 1.
+s2 <- si_2pl$summary |> dplyr::left_join(si_2pl$word_slopes, by = c("slug", "lang"))
+tab2 <- s2 |>
+  transmute(
+    Dataset  = as.character(lang),
+    sig_lam  = sprintf("%.2f", sigma_lambda),
+    lam_rng  = sprintf("%.2f--%.2f", lambda_p10, lambda_p90),
+    cor_ld   = sprintf("%+.2f [%+.2f, %+.2f]", cor_lambda_delta,
+                       cor_lambda_delta_q5, cor_lambda_delta_q95),
+    k1       = sprintf("%.1f", kappa_1pl),
+    k2       = sprintf("%.1f", kappa_2pl),
+    dlk      = sprintf("%+.3f", d_log_kappa),
+    lk_med   = ifelse(is.na(lk_med), "---", sprintf("%.1f", lk_med)),
+    lk_gt1   = ifelse(is.na(lk_pct_gt1), "---", sprintf("%.1f", lk_pct_gt1)),
+    aoa_r    = sprintf("%.3f", aoa_cor),
+    aoa_d    = sprintf("%.2f", aoa_mad),
+    loo      = ifelse(is.na(loo_elpd_diff), "---",
+                      sprintf("%s (%s)", format(round(loo_elpd_diff), big.mark = ","),
+                              format(round(loo_se_diff)))))
+## format="latex" is REQUIRED whenever a kable is piped into kableExtra here. Under
+## Quarto, knitr::opts_knit$get("out.format") is "markdown", so kable() emits a pipe
+## table and kable_styling() converts it to LaTeX -- escaping as it goes and discarding
+## escape=FALSE. Without it, math in col.names/cells renders as the literal source
+## ("\$\textbackslash{}kappa\$"). Setting the format explicitly makes escape=FALSE stick.
+
+knitr::kable(tab2, format = "latex", booktabs = TRUE, align = c("l", rep("r", 11)), escape = FALSE,
+             col.names = c("Dataset",
+                           "SD $\\log\\lambda$", "$\\lambda$ p10--p90", "$r(\\lambda,\\delta)$",
+                           "1PL", "2PL", "$\\Delta\\log\\kappa$",
+                           "med.", "\\% $>1$",
+                           "$r(t_{50})$", "med.\\ $|\\Delta t_{50}|$",
+                           "$\\Delta$ELPD (SE)")) |>
+  kableExtra::add_header_above(c(" " = 1, "Discrimination" = 3, "Acceleration $\\\\kappa$" = 3,
+                                 "Word slopes $\\\\lambda_j\\\\kappa_i$" = 2,
+                                 "Age of acquisition" = 2, "LOO" = 1), escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 7, latex_options = c("HOLD_position", "scale_down"))
+```
+
+## Sensitivity to Item Selection
+
+One potential concern about our $\kappa$ estimates is that they could be influenced by the composition of the CDI instrument. Could a broader spread of item difficulties result in a larger $\kappa$ estimate? To address this issue, we refit M3 on the same children and same administrations, but with the item set narrowed. We fit models under three sets of conditions: refitting the middle 50% and middle 25% of items (to narrow the width of the distribution),  refitting the easiest and hardest halves separately (to shift the difficulty distribution), and subsetting randomly to 50% and 25% of items. If $\kappa$ scales as a function of the difficulty distribution ($\sigma_\delta$), recovered $\kappa$ values should scale with the standard deviation of the retained items; if not, $\kappa$ should be relatively invariant. Fig. -@fig-item-subset shows the results of this analysis. Overall, $\kappa$ values were invariant to retained item variability.
+
+```{r fig-item-subset, fig.width=6.5, fig.height=4.2}
+#| label: fig-item-subset
+#| fig-cap: "Acceleration under deliberately narrowed item sets, plotted as the ratio to the full-data fit against the ratio of retained item-difficulty spread. Each point is one refit on the same children and administrations. If acceleration rescaled with the instrument, points would fall on the diagonal; if it is a property of the children, they fall on the horizontal line at one. Open points are random subsets of matched size, which discard the same number of items without narrowing the spread."
+## Built from paper/cache/si_item_subset.rds (studies/bayes_long/11_item_subset_report.R).
+##
+## The plot is in RATIOS rather than raw units so all datasets share one panel and the two
+## competing predictions become fixed reference lines rather than per-dataset curves:
+## proportional-to-instrument is the identity diagonal, invariant-to-instrument is y = 1.
+## This is the display the objection itself proposed, which is why it is drawn this way.
+d <- si_isub |> dplyr::filter(cond != "all") |>
+  dplyr::mutate(kind = ifelse(grepl("^rand", cond), "random (size-matched)", "narrowed"))
+ggplot(d, aes(sd_ratio, kappa_ratio, colour = lang, shape = kind)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "22", colour = "grey45", linewidth = 0.5) +
+  geom_hline(yintercept = 1, colour = "grey45", linewidth = 0.5) +
+  geom_point(size = 2.6, stroke = 0.8) +
+  ggrepel::geom_text_repel(aes(label = cond), size = 2.5, show.legend = FALSE,
+                           min.segment.length = 0, segment.size = 0.2, max.overlaps = Inf) +
+  annotate("text", x = 0.16, y = 0.22, label = "proportional to instrument",
+           hjust = 0, size = 2.7, colour = "grey35", angle = 26) +
+  ## placed high and right: the top-left is where the strongest narrowing conditions
+  ## land, and the label collided with their point labels there
+  annotate("text", x = 0.98, y = 1.28, label = "invariant (property of the child)",
+           hjust = 1, size = 2.7, colour = "grey35") +
+  scale_shape_manual(values = c("narrowed" = 16, "random (size-matched)" = 1), name = NULL) +
+  scale_colour_brewer(palette = "Dark2", name = NULL) +
+  scale_x_continuous(limits = c(0.1, 1.1)) +
+  scale_y_continuous(limits = c(0, 1.35)) +
+  labs(x = "retained item-difficulty SD, relative to full data",
+       y = expression(paste(kappa, ", relative to full data"))) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom", legend.box = "vertical",
+        legend.spacing.y = unit(0, "pt"), panel.grid.minor = element_blank())
+```
+
+## Variation in Acceleration
+
+```{r blup-prep, include=FALSE}
+# Per-child BLUP distributions (efficiency xi, acceleration kappa) from the
+# Bayesian M3 fits (per-child exports), used for the dip-test table and histogram
+# below. We z-score WITHIN dataset (datasets differ in scale) and drop a handful
+# of extreme BLUPs (|z| > 4) that come from sparsely-observed children rather
+# than distinct subgroups.
+bz <- si_blups |>
+  group_by(lang) |>
+  mutate(xz = as.numeric(scale(xi)), zz = as.numeric(scale(kappa))) |>
+  ungroup() |>
+  filter(is.finite(xz), is.finite(zz), abs(xz) <= 4, abs(zz) <= 4) |>
+  rename(study = lang)
+```
+
+To explore the distribution of individual children's fitted parameters, we show the best linear unbiased predictor (BLUP) for each child (@fig-blup-hist) as well as the random effects of the fitted models (@tbl-ranef). While the distribution appears generally normal, we do not give a strong interpretation as this shape may in part be due to the normal form of the model's random effect structure. However, across all datasets, acceleration appeared right-skewed. 
+
+```{r fig-blup-hist, fig.width=7, fig.height=6.5}
+#| label: fig-blup-hist
+#| fig-cap: "Histograms of per-child BLUP estimates, z-scored within each dataset, for both efficiency and acceleration parameters. Dashed lines indicate the standard normal reference distribution."
+
+hist_df <- bz |>
+  select(study, xz, zz) |>
+  pivot_longer(c(xz, zz), names_to = "param", values_to = "z") |>
+  mutate(param = factor(param, levels = c("xz", "zz"),
+                        labels = c("Efficiency~(xi)", "Acceleration~(kappa)")))
+ggplot(hist_df, aes(z)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30,
+                 fill = "#2b8cbe", colour = "white", linewidth = 0.1) +
+  stat_function(fun = dnorm, colour = "grey30", linetype = "dashed",
+                linewidth = 0.4) +
+  facet_grid(study ~ param, scales = "free_y",
+             labeller = labeller(param = label_parsed)) +
+  labs(x = "per-child BLUP (z-scored within dataset)", y = "density") +
+  theme_minimal(base_size = 9) +
+  theme(strip.text = element_text(size = 8, face = "bold"),
+        panel.grid.minor = element_blank())
+```
+
+
+```{r tbl-ranef}
+#| label: tbl-ranef
+#| tbl-cap: "Random-effect parameters for M3 fits, by dataset: population acceleration $\\kappa$, between-child SD in efficiency ($\\sigma_a$) and acceleration ($\\sigma_b$), their correlation ($\\rho$), and the percentage of children estimated above the pure-accumulator value $\\kappa = 1$. Brackets give 90% posterior intervals."
+
+ranef <- readRDS(here("paper", "cache", "si_ranef.rds"))
+ci <- function(m, lo, hi, d = 2)
+  sprintf(paste0("%.", d, "f [%.", d, "f, %.", d, "f]"), m, lo, hi)
+ranef |>
+  transmute(Dataset = as.character(lang), N = format(n_kids, big.mark = ","),
+            kappa   = ci(kappa,  kappa_q5,  kappa_q95,  1),
+            sigma_a = ci(sigma_a, sigma_a_q5, sigma_a_q95),
+            sigma_b = ci(sigma_b, sigma_b_q5, sigma_b_q95),
+            rho     = sprintf("%+.2f [%+.2f, %+.2f]", rho, rho_q5, rho_q95),
+            gt1     = sprintf("%.1f", pct_gt1)) |>
+  ## format="latex" required whenever a kable is piped into kableExtra here: under
+  ## Quarto knitr's out.format is "markdown", so kable() emits a pipe table and
+  ## kable_styling() converts it to LaTeX, escaping as it goes and discarding
+  ## escape=FALSE. This chunk lost the argument when it moved from the main text.
+  knitr::kable(format = "latex", booktabs = TRUE, align = c("l", "r", "r", "r", "r", "r", "r"), escape = FALSE,
+               col.names = c("Dataset", "N", "$\\kappa$", "$\\sigma_a$", "$\\sigma_b$",
+                             "$\\rho$", "\\% $\\kappa_i>1$")) |>
+  kableExtra::kable_styling(font_size = 8, latex_options = c("HOLD_position", "scale_down"))
+```
+
+## Input Estimation
+
+We make use of estimates of children's language input in both @fig-efficiency and @fig-llm-acceleration, panel C. We calculate average language input per month by estimating words per hour and multiply by an estimated number of waking hours per month. Word tokens per hour estimates come from 42 children with manually transcribed data
+in two prior studies [@sperry2019;@hart1995; estimates used also in @kachergis2022]. Across these studies, the pooled geometric mean is $\exp(7.338) \approx 1{,}537$ word tokens per hour
+of child-directed (any-adult) speech, with between-child standard deviation of
+log rate $\sigma_r = 0.534$. We multiply these estimates by an assumed 12 waking exposure-hours per day to get a monthly average number of hours ($12 \times 30.4 \approx 365$), giving 
+$1{,}537 \times 365 \approx 561\text{K}$ tokens per month. A child's average cumulative input at age $t$ months is then $t \times 561\text{K}$ under a constant-rate assumption.
+
+In @fig-llm-acceleration, panel C, we give uncertainty bands on representative children based on $\pm 1$ SD of the
+between-child log input rate. A child one standard deviation above (below) the
+median rate reaches the same age having heard $\times 1.71$ ($\div 1.71$) as
+many tokens. This results in a horizontal shift of the child's curve along the log-token axis.
+
+Our calibration computations assume that input is constant across age. To provide empirical verification, we used data from four pre-existing datasets: @adams2018, @long2025 (BabyView), @fernald2013, @egan2025 (SEEDLings). These studies measured children's input using either LENA recorders or head-mounted cameras; we computed total words heard per hour in each dataset for each recording. Fig. -@fig-input-age shows speech rate per hour in these datasets. Slopes over age for each were shallow and non-significant.
+
+```{r fig-input-age, fig.width=7.5, fig.height=5}
+#| label: fig-input-age
+#| fig-cap: "Input rate does not change appreciably across development. Each panel plots log adult input rate against child age, with one point per recording, faint gray lines joining recordings from the same child, and the fitted within-child trend (black) with its 95% confidence band. Dashed lines show zero slope. Trends are fitted over 8-36 months (shaded), the range over which the constant-rate assumption is applied; gray points fall outside that window and are excluded from the fit."
+## Built from paper/cache/si_input_stability.rds (studies/bayes_long/07_input_stability.R).
+##
+## SHARED x, FREE y. The age axis has to be shared: AM2018 spans six months and BabyView
+## thirty, so on free x a slope estimated from a narrow window would be drawn at the same
+## visual steepness as one estimated across the whole of development. The vertical axis
+## cannot be shared, because BabyView's head-cam rate is in study-specific units while the
+## other three are LENA adult words per hour.
+##
+## The 8-36 month window is doing real work in exactly one panel. SEEDLingS is measured
+## monthly from 6-17 months and then once more at 54 months; fitted over its full range it
+## returns +0.0035 log units/mo with a CI excluding zero, but that slope is a line drawn
+## across a 37-month gap containing no observations. Plotting the excluded points in grey
+## rather than dropping them keeps that visible.
+AW  <- si_inp$age_window
+pal <- setNames(STUDY_PAL, c("BabyView (head-cam)", "SEEDLingS (LENA)",
+                             "AM2018 (LENA)", "FMW2013 (LENA)"))
+pts <- si_inp$points |> mutate(in_win = age >= AW[1] & age <= AW[2])
+## Headroom for the annotation, scaled to the BULK of each panel rather than its full
+## range: BabyView's near-silent recordings stretch its raw range to 7.8 log units and
+## would otherwise open a large empty gap above the data.
+rng <- pts |> group_by(lang) |>
+  summarise(lo_y = min(log_input), hi_y = max(log_input),
+            bulk = diff(quantile(log_input, c(0.01, 0.99))), .groups = "drop") |>
+  mutate(pad = 0.30 * bulk)
+ann <- si_inp$stats |> left_join(rng, by = "lang") |>
+  mutate(x = 4, y = hi_y + pad,
+         lab = sprintf("%+.4f log units/mo [%+.4f, %+.4f]\n%+.0f%% over %.0f-%.0f mo [%+.0f, %+.0f]",
+                       slope, lo, hi, pct_change, age_lo, age_hi, pct_lo, pct_hi))
+## geom_blank only ever expands a scale, so this adds the headroom without clipping data
+blank <- rng |> transmute(lang, lo_y, hi_y = hi_y + pad) |>
+  tidyr::pivot_longer(-lang, values_to = "log_input") |> mutate(age = AW[1])
+
+ggplot(pts, aes(age, log_input)) +
+  annotate("rect", xmin = AW[1], xmax = AW[2], ymin = -Inf, ymax = Inf,
+           fill = "grey50", alpha = 0.08) +
+  geom_line(aes(group = child_id), colour = "grey65", linewidth = 0.2, alpha = 0.35) +
+  geom_point(aes(colour = ifelse(in_win, as.character(lang), "out")), size = 0.55, alpha = 0.3) +
+  geom_line(data = si_inp$fitted, aes(y = flat), linetype = "22", colour = "grey20", linewidth = 0.5) +
+  geom_ribbon(data = si_inp$fitted, aes(ymin = lo, ymax = hi), fill = "black", alpha = 0.2) +
+  geom_line(data = si_inp$fitted, linewidth = 0.8, colour = "black") +
+  geom_blank(data = blank) +
+  geom_text(data = ann, aes(x, y, label = lab), hjust = 0, vjust = 1,
+            size = 2.4, lineheight = 0.95, colour = "grey20") +
+  facet_wrap(~ lang, scales = "free_y") +
+  scale_colour_manual(values = c(pal, out = "grey70"), guide = "none") +
+  scale_x_continuous(breaks = c(6, AW, 44, 54)) +
+  labs(x = "Age (months)", y = "Log input rate") +
+  theme_minimal(base_size = 10) +
+  theme(panel.grid.minor = element_blank(),
+        strip.text = element_text(face = "bold", size = 9))
+```
+
+## Age of Acquisition in the Pure Accumulator Model
+
+Figure 2 in the main text converts each word's fitted difficulty into an estimated number of cumulative exposures at the age it is acquired. Since later-acquired words are also rarer, here we ask whether that frequency change would be sufficient to produce the observed relationship between cumulative exposure and age of acquisition. 
+
+Fig. -@fig-aoa-m0 shows the same relationship, but comparing age of acquisition estimates between M3 (the accelerating accumulator) and M0 (the pure accumulator). The pure accumulator does not reproduce either the scale or the slope of the relationship (@tbl-aoa-m0). Within every word class, the slope of the relationship is substantially shallower in M0 than M3, and the M0 forces the fitted difficulties to spread acquisition across 5 to 254 months, against 14 to 35 months for the accelerating model and 8 to 36 months of actual observation.
+
+```{r fig-aoa-m0, fig.width=7.5, fig.height=4.2}
+#| label: fig-aoa-m0
+#| fig-cap: "Estimated cumulative exposures at age of acquisition under the accelerating accumulator (M3, left, reproduced from main text) and the fitted pure accumulator (M0, right), using identical corpus frequencies. Points are words, colored by class, with per-class linear fits."
+## Built from paper/cache/si_fig2_m0.rds (studies/bayes_long/04_fig2_m0_counterfactual.R).
+## BOTH axes are logarithmic, so the fitted lines drawn here ARE the slopes reported in
+## @tbl-aoa-m0. With a linear x-axis they were not: the table's slopes are fitted in
+## log-log, and drawing them against linear age produced lines a reader could not read off
+## the table. A log x-axis is also the fairer geometry, since M0 spreads acquisition over
+## 5-254 months against M3's 14-35 and a linear axis flattens its slope mechanically.
+## Scales are shared rather than free: on a log axis the difference in implied range is
+## legible without crushing the M3 panel, and that difference is itself part of the point.
+d <- bind_rows(si_f2m0$m3, si_f2m0$m0) |>
+  mutate(model = factor(model, levels = c("M3 (accelerating)", "M0 (pure accumulator)")))
+ggplot(d, aes(t_50, N_word, colour = lexical_class)) +
+  geom_point(alpha = 0.35, size = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, formula = y ~ x) +
+  facet_wrap(~ model) +
+  scale_x_log10(breaks = c(5, 10, 20, 40, 80, 160, 320)) +
+  scale_y_log10(labels = scales::label_number(big.mark = ",")) +
+  scale_colour_brewer(palette = "Dark2", name = NULL,
+                      labels = c("Nouns", "Action words", "Descriptive words", "Function words")) +
+  labs(x = "Age (months) when 50% of children produce word",
+       y = "Cumulative exposures at acquisition") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(),
+        strip.text = element_text(face = "bold"))
+```
+
+```{r tbl-aoa-m0}
+#| label: tbl-aoa-m0
+#| tbl-cap: "Slope of estimated cumulative exposures with respect to age of acquisition, by word class, under each item model. Negative values mean fewer exposures are needed for later-acquired words."
+si_f2m0$slopes |>
+  select(model, lexical_class, n, elasticity, r2_ela) |>
+  tidyr::pivot_wider(names_from = model, values_from = c(elasticity, r2_ela)) |>
+  transmute(Class = as.character(lexical_class), n,
+            m3 = sprintf("%+.2f", `elasticity_M3 (accelerating)`),
+            m3r = sprintf("%.2f", `r2_ela_M3 (accelerating)`),
+            m0 = sprintf("%+.2f", `elasticity_M0 (pure accumulator)`),
+            m0r = sprintf("%.2f", `r2_ela_M0 (pure accumulator)`)) |>
+  knitr::kable(format = "latex", booktabs = TRUE, escape = FALSE,
+               align = c("l", "r", "r", "r", "r", "r"),
+               col.names = c("Word class", "$n$", "slope", "$R^2$", "slope", "$R^2$")) |>
+  kableExtra::add_header_above(c(" " = 2, "M3 (accelerating)" = 2,
+                                 "M0 (pure accumulator)" = 2)) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## Matched Estimation of Acceleration
+
+One potential objection to the comparison of children and LMs in the main text is that the estimators are different in two ways. First, the estimator for children is Rasch-based, while the model from @chang2022 is a four-parameter logistic. Second, and perhaps more saliently, the child estimator is for $\kappa$ across children, while the LM estimator is across words. 
+
+To address these issues, we fit the LM four-parameter estimator directly to data on children's word acquisition, averaging across children to produce a proportion of children producing each word at each age. (The Thal and Japanese datasets had fewer children and less age diversity, so not all words produced a viable curve estimate, but most words could be estimated for the Smith, Marchman, and Norwegian datasets). Fig. -@fig-perword-4pl shows the results. Across all datasets, $\kappa$ estimates were robustly higher than LMs, though somewhat attenuated relative to the M3 fits. 
+
+One possible source of this attenuation is the averaging of many different acquisition curves across children. To estimate this attenuation, we sampled from the fitted M3 parameters for $\xi_i$, $\kappa_i$ and $\delta_j$, and ran the identical pipeline over the data to recover a correction factor (the ratio of the estimated by-word $\kappa$ to the population $\kappa$ used to generate the data). We then applied this correction factor to our empirical estimates. Table -@tbl-perword-4pl shows these corrected estimates, which match very closely to the M3 values. 
+
+In sum, even with a completely matched estimator, acceleration diverges substantially between children and LMs. 
+
+
+```{r fig-perword-4pl, fig.width=7, fig.height=3.6}
+#| label: fig-perword-4pl
+#| fig-cap: "Per-word acceleration for children and language models, both estimated with the same four-parameter logistic. Points are words, with the median marked; language model values are medians across the ten training seeds. The dashed line at one is the pure-accumulator value. Child estimates are attenuated by pooling across children and so understate the separation; the correction factors are given in the table."
+## Deliberately echoes the main-text variability panel: log x, kappa = 1 dashed, median
+## crossbar, one row per population. Raw (uncorrected) child values are plotted, since the
+## point is that the gap does not depend on the correction.
+##
+## LAB is defined here as well as in the table chunk below. The figure now precedes the
+## table, so relying on the table to define it makes the render order-dependent -- which
+## is exactly how it broke when the two were reordered.
+LAB <- c(thal_a3 = "English (Thal)", smith_a3 = "English (Smith)",
+         marchman_a3 = "English (Marchman)", norwegian_a3 = "Norwegian",
+         japanese_a3 = "Japanese")
+d4 <- dplyr::bind_rows(
+  dplyr::bind_rows(lapply(names(si_p4pl$child), function(sl)
+    data.frame(pop = unname(LAB[sl]), kappa = si_p4pl$child[[sl]]$observed$kappa))),
+  data.frame(pop = "Language models", kappa = si_p4pl$lm$kappa)) |>
+  dplyr::filter(kappa > 0) |>
+  dplyr::mutate(pop = factor(pop, levels = c(unname(LAB), "Language models")),
+                kind = ifelse(pop == "Language models", "LM", "child"))
+ggplot(d4, aes(kappa, forcats::fct_rev(pop), colour = kind)) +
+  geom_jitter(position = position_jitter(height = 0.2, seed = 1), alpha = 0.2, size = 0.7) +
+  stat_summary(fun = median, geom = "crossbar", width = 0.5, linewidth = 0.5, colour = "grey20") +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
+  scale_x_log10(breaks = c(0.2, 0.5, 1, 2, 5, 10, 20, 50)) +
+  scale_colour_manual(values = c(child = "#1f78b4", LM = "#e66101"), guide = "none") +
+  labs(x = expression(paste("per-word ", kappa, " (log scale)")), y = NULL) +
+  theme_minimal(base_size = 10) +
+  theme(panel.grid.minor = element_blank())
+```
+
+
+```{r tbl-perword-4pl}
+#| label: tbl-perword-4pl
+#| tbl-cap: "Per-word acceleration estimated with the language models' own estimator. For each word we fit the same four-parameter logistic used on LM surprisal to the proportion of children not yet producing that word, and take kappa = 0.434/scale. Recovery is the fraction of the population kappa that the same pipeline returns when run on data generated from the fitted M3, and is the factor by which pooling across children attenuates the estimate; the corrected estimate is the raw estimate divided by this factor. The final column is the kappa M3 model reports for that dataset."
+## Built from paper/cache/si_perword_4pl.rds (studies/bayes_long/10_perword_4pl.R).
+## The LM row carries no recovery/corrected/IRT entry: an LM ladder is a single learner,
+## so its per-word curve needs no pooling and suffers no attenuation, and there is no IRT
+## fit to compare against. Blanks rather than dashes-as-numbers, so nothing invites a
+## column-wise comparison the design does not support.
+LAB <- c(thal_a3 = "English (Thal)", smith_a3 = "English (Smith)",
+         marchman_a3 = "English (Marchman)", norwegian_a3 = "Norwegian",
+         japanese_a3 = "Japanese")
+p4 <- dplyr::bind_rows(lapply(names(si_p4pl$child), function(sl) {
+  z <- si_p4pl$child[[sl]]
+  data.frame(Sample = unname(LAB[sl]),
+             words = sprintf("%d/%d", z$n_words_fit, z$n_words_obs),
+             raw = sprintf("%.2f [%.2f, %.2f]", z$kappa_obs, z$kappa_iqr[1], z$kappa_iqr[2]),
+             rec = sprintf("%.0f\\%%", 100 * z$recovery),
+             cor = sprintf("%.2f", z$kappa_corrected),
+             irt = sprintf("%.2f", z$kappa_irt))
+}))
+## si_p4pl$lm now carries ONE ROW PER WORD (median across the ten seeds), so this row
+## counts the same thing as the child rows above. Every word yielded a usable fit in at
+## least one seed, hence n/n. The per-(seed,word) fits remain in si_p4pl$lm_fits.
+lmk <- si_p4pl$lm$kappa
+p4 <- rbind(p4, data.frame(
+  Sample = "Language models", words = sprintf("%d/%d", length(lmk), length(lmk)),
+  raw = sprintf("%.2f [%.2f, %.2f]", median(lmk), quantile(lmk, .25), quantile(lmk, .75)),
+  rec = "", cor = "", irt = ""))
+knitr::kable(p4, format = "latex", booktabs = TRUE, escape = FALSE,
+             align = c("l", "r", "r", "r", "r", "r"),
+             col.names = c("Sample", "words fitted", "$\\kappa$ raw [IQR]",
+                           "recovery", "$\\kappa$ corrected", "$\\kappa$ (M3)")) |>
+  kableExtra::kable_styling(font_size = 9, latex_options = "HOLD_position")
+```
+
+## Other Architectures
+
+The acceleration results we report in the main text are not specific to our choice of the GPT-2 architecture. We re-analyze the published fits of @chang2022. Fig. -@fig-si-cb-arch shows a similar distribution of per-word $\kappa$ values for the four different architectures reported in that study, which were trained on standard LM corpora rather than child-directed input. 
+
+```{r fig-si-cb-arch, fig.width=6.5, fig.height=4}
+#| label: fig-si-cb-arch
+#| fig-cap: "Per-word acquisition slopes for the four architectures studied in Chang & Bergen (2022) -- BERT, GPT-2, BiLSTM, LSTM -- trained on BookCorpus + WikiText-103. CHILDES-trained GPT-2 models (training axis) are overlaid in gray."
+
+# Data: build_cache.R §6 (fig6_llm_slopes.rds: slopes_cb_arch + slopes).
+cb   <- llm_slopes$slopes_cb_arch
+ours <- llm_slopes$slopes |>
+  dplyr::filter(group == "LMs: CHILDES (training)") |>
+  dplyr::transmute(arch = "GPT-2 / CHILDES (this work)", slope_natural)
+arch_pal <- c("BERT"="#7b3294","GPT-2"="#c2a5cf","BiLSTM"="#a6dba0","LSTM"="#008837",
+              "GPT-2 / CHILDES (this work)"="grey35")
+ggplot(dplyr::bind_rows(cb, ours), aes(slope_natural, colour=arch, fill=arch)) +
+  geom_density(alpha=0.15, linewidth=0.6) +
+  geom_vline(xintercept=1, linetype="dashed", colour="grey55", linewidth=0.4) +
+  annotate("text", x=1.15, y=Inf, hjust=0, vjust=1.5, size=2.8, colour="grey45",
+           label="kappa = 1 (unit accumulator)") +
+  scale_colour_manual(values=arch_pal, name=NULL) +
+  scale_fill_manual(values=arch_pal, name=NULL) +
+  coord_cartesian(xlim=c(0,4)) +
+  labs(x="per-word kappa: sigmoid slope on log(experience)", y="density") +
+  theme_minimal(base_size=10) +
+  theme(legend.position=c(0.78,0.72), legend.text=element_text(size=7.5),
+        legend.background=element_rect(fill="white", colour=NA))
+```
+

@@ -1,0 +1,130 @@
+## One-time R-environment setup for Sherlock.
+##
+## Run inside an interactive dev session (sh_dev -c 4) after `ml R`.
+## Installs rstan and every package our scripts import.
+##
+## Sherlock's $HOME is user-writable; install.packages goes there by
+## default. No sudo needed.
+
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# On Sherlock the default system library isn't writable; make sure
+# the user library exists and is first on the path.
+user_lib <- Sys.getenv("R_LIBS_USER")
+if (!nzchar(user_lib)) {
+  rv <- paste(R.version$major, strsplit(R.version$minor, "\\.")[[1]][1], sep = ".")
+  user_lib <- file.path("~/R",
+                        paste0(R.version$platform, "-library"), rv)
+  user_lib <- path.expand(user_lib)
+}
+if (!dir.exists(user_lib)) dir.create(user_lib, recursive = TRUE)
+.libPaths(c(user_lib, .libPaths()))
+cat("User library:", user_lib, "\n")
+cat("Library paths:\n"); print(.libPaths())
+
+# Core packages needed for fitting + analysis. Deliberately excluded:
+#   * wordbankr / childesr — wordbankr needs mysql dev headers, childesr
+#     needs R >= 4.4. Data pulls happen on the laptop; intermediates
+#     (long_ws_items.rds, norwegian_word_freq.rds) ship in the repo.
+#   * arrow — only used by local-only exploration scripts that read
+#     .feather files; the fit pipeline doesn't need it, and the package
+#     fails to compile on Sherlock without libarrow.
+cran_pkgs <- c(
+  "rstan", "posterior", "loo", "dplyr", "tidyr", "ggplot2", "tibble",
+  "patchwork", "MASS", "remotes", "purrr",
+  # for glmer_ladder pipeline:
+  "lme4", "readr"
+)
+
+installed <- rownames(installed.packages())
+needed    <- setdiff(cran_pkgs, installed)
+if (length(needed) > 0) {
+  message("Installing CRAN packages to ", user_lib, ": ",
+          paste(needed, collapse = ", "))
+  install.packages(needed, lib = user_lib)
+}
+
+# cmdstanr lives on R-universe; install separately. cmdstan itself
+# (the C++ tool) needs install_cmdstan() to compile -- that takes
+# ~10 min and ~2 GB; uses make + clang/g++ already on Sherlock.
+if (!"cmdstanr" %in% rownames(installed.packages())) {
+  message("Installing cmdstanr from R-universe ...")
+  install.packages("cmdstanr",
+                   repos = c("https://stan-dev.r-universe.dev",
+                              getOption("repos")),
+                   lib = user_lib)
+}
+suppressPackageStartupMessages(library(cmdstanr))
+if (is.null(tryCatch(cmdstan_path(), error = function(e) NULL))) {
+  message("Installing cmdstan (one-time, ~10 min compile) ...")
+  # Stan's TBB build needs TBB_CXX_TYPE set explicitly when the
+  # compiler can't be auto-detected (Sherlock case). Sherlock loads
+  # gcc by default; override by setting TBB_CXX_TYPE in the env
+  # before calling Rscript if you want a different one.
+  if (!nzchar(Sys.getenv("TBB_CXX_TYPE"))) {
+    Sys.setenv(TBB_CXX_TYPE = "gcc")
+    message("Set TBB_CXX_TYPE=gcc (override via env var if needed).")
+  }
+  install_cmdstan(cores = 4, quiet = FALSE)
+}
+cat("cmdstan path:", cmdstan_path(), "\n")
+cat("cmdstan version:", cmdstan_version(), "\n")
+
+## Ensure make/local has the configuration that our model fits need.
+## install_cmdstan() rewrites this file from scratch, so anything we
+## want preserved across reinstalls has to be re-applied here.
+##
+## Required entries:
+##   STAN_THREADS=true              -- enable reduce_sum threading
+##   TBB_CXX_TYPE=gcc               -- TBB build needs explicit compiler kind
+##   LDLIBS += -lpthread            -- linker needs explicit -lpthread; default
+##   CXXFLAGS += -pthread              cmdstan-2.38 + Sherlock GCC build
+##                                     doesn't add it from STAN_THREADS alone
+##   CXXFLAGS += -Wno-deprecated-declarations  -- silence harmless warnings
+ensure_make_local <- function() {
+  ml <- file.path(cmdstan_path(), "make", "local")
+  needed <- c(
+    "CXXFLAGS += -Wno-deprecated-declarations",
+    "STAN_THREADS=true",
+    "TBB_CXX_TYPE=gcc",
+    "LDLIBS += -lpthread",
+    "CXXFLAGS += -pthread"
+  )
+  existing <- if (file.exists(ml)) readLines(ml) else character(0)
+  to_add <- setdiff(needed, trimws(existing))
+  if (length(to_add) == 0) {
+    cat("make/local already has required entries.\n"); return(invisible())
+  }
+  cat(sprintf("Appending %d entries to make/local: %s\n",
+              length(to_add), paste(to_add, collapse = "; ")))
+  writeLines(c(existing, to_add), ml)
+}
+ensure_make_local()
+
+cat("\nPackages installed. rstan version:\n")
+print(packageVersion("rstan"))
+cat("cmdstanr version:\n")
+print(packageVersion("cmdstanr"))
+
+## Pre-compile the Stan models so the first fit doesn't pay compile cost.
+## This requires ~8 GB RAM per model; if the dev session doesn't have that
+## memory (OOM -> "Killed signal terminated program cc1plus"), skip it and
+## the first SLURM fit will compile (SLURM scripts reserve more RAM).
+maybe_compile <- function(path) {
+  if (!file.exists(path)) return(invisible(NULL))
+  message("Pre-compiling ", path, " ...")
+  tryCatch({
+    suppressPackageStartupMessages(library(rstan))
+    rstan_options(auto_write = TRUE)
+    stan_model(path)
+    message("  OK")
+  }, error = function(e) {
+    message("  SKIPPED (", conditionMessage(e), ")")
+    message("  This is usually an OOM in the dev session. It's fine:")
+    message("  the first SLURM fit will compile the model and cache it.")
+  })
+}
+maybe_compile("model/stan/log_irt.stan")
+maybe_compile("model/stan/log_irt_long.stan")
+
+cat("\nSetup complete.\n")

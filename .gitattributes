@@ -1,0 +1,3 @@
+# Some upstream CSVs ship with CRLF; keep them byte-exact rather than letting git
+# normalise line endings, which fails the add outright.
+studies/llm/autoresearch_pilot/*.csv -text
