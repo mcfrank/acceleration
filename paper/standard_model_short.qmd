@@ -256,54 +256,81 @@ cowplot::plot_grid(pB, pC, ncol = 1, rel_heights = c(1, 1.65),
 
 # Accelerating accumulation implies less exposure is needed for later-acquired words
 
-```{r fig-efficiency, fig.width=7, fig.height=5}
+```{r fig-efficiency, fig.width=7, fig.height=6.2}
 #| label: fig-efficiency
 #| fig-cap: "**Under the accelerating accumulator model, the number of exposures needed to learn a word decreases with age.** Plot shows estimated cumulative exposures to a word plotted by the age at which 50% of the children in our three English-language datasets were estimated to produce the word. Colors show different word classes, and solid and dashed lines show simple linear fits from the accelerating (M3) and pure accumulator (M0) models, respectively."
 
 items <- fig2$items
-k <- 8
-.vis <- items |> filter(N_word >= 50, N_word <= 1e6, t_50 >= 10, t_50 <= 42)
-labels_df <- bind_rows(
-  slice_min(.vis, t_50,   n = k),   # far left  (earliest)
-  slice_max(.vis, t_50,   n = k),   # far right (latest)
-  slice_min(.vis, N_word, n = k),   # bottom    (fewest exposures)
-  slice_max(.vis, N_word, n = k)) |># top       (most exposures)
-  distinct(item, .keep_all = TRUE)
+NICE <- c("nouns" = "Nouns", "action words" = "Action Words",
+          "descriptive words" = "Descriptive Words", "function words" = "Function Words")
+## Tol muted rather than Okabe-Ito. Fig 1B's percentile bands already own the Okabe-Ito
+## blue/sky/pink/orange slots, and colour there encodes an ORDERED quantity; reusing those
+## same hues here for nominal word classes made the two figures read as one encoding.
+## Chosen by search over colourblind-safe candidates: within-palette separability is
+## unchanged (worst dE 20.6 vs 20.7 before) while the worst-case distance from the Fig 1B
+## ramp goes from 0.0 -- literally the same hexes -- to 13.0. Clears black (30.8) and the
+## context grey (27.8). All dE are CIE Lab, worst case over normal/deutan/protan/tritan.
+PAL <- c("nouns" = "#117733", "action words" = "#CC6677",
+         "descriptive words" = "#999933", "function words" = "#882255")
+## One panel per word class. Pooled, the label budget went to whichever class had the
+## extreme values -- 15 nouns, 14 function words, 2 action words and no descriptive words
+## at all -- and eight overlapping fit lines buried the M3-vs-M0 contrast the figure
+## exists to show. Faceting fixes both: k per axis-end WITHIN each class, so k = 2 here
+## gives up to 8 labels per panel and the same overall density as the old k = 8 pooled.
+k <- 2
+labels_df <- items |>
+  filter(N_word >= 50, N_word <= 1e6, t_50 >= 10, t_50 <= 42) |>
+  group_by(lexical_class) |>
+  group_modify(~ bind_rows(
+    slice_min(.x, t_50,   n = k),    # earliest
+    slice_max(.x, t_50,   n = k),    # latest
+    slice_min(.x, N_word, n = k),    # fewest exposures
+    slice_max(.x, N_word, n = k)) |> # most exposures
+    distinct(item, .keep_all = TRUE)) |>
+  ungroup()
+## Every word repeated in grey behind each panel. Without it each facet looks like the
+## whole dataset and the reader loses that function words sit ~2 orders of magnitude
+## above nouns -- which the pooled version showed for free.
+ctx <- items |> select(-lexical_class)
 ## Dashed lines are the FITTED PURE ACCUMULATOR (M0), from the same counterfactual the SI
 ## reports (fig2$m0_lines, built in paper/build_cache_short.R from si_fig2_m0.rds), so the
 ## two sections cannot drift apart. They are semi-log fits because that is this figure's
 ## geometry -- linear age, log10 exposures -- not the log-log elasticities in the SI table.
 ## Each dashed line spans the same ages as the solid line it is compared against.
-ggplot(items, aes(t_50, N_word, colour = lexical_class)) +
-  geom_point(alpha = 0.5, size = 1.1) +
-  geom_smooth(aes(linetype = "Accelerating (M3)"),
-              method = "lm", se = FALSE, linewidth = 0.8, formula = y ~ x) +
-  geom_line(data = fig2$m0_lines, aes(linetype = "Pure accumulator (M0)"), linewidth = 0.8) +
+## Drawn in black to match Fig 1B, where black marks the rungs without acceleration, and
+## Fig 1A, where dashed marks the pure accumulator: same ink, same meaning across figures.
+ggplot(items, aes(t_50, N_word)) +
+  geom_point(data = ctx, colour = "grey85", alpha = 0.6, size = 0.7) +
+  geom_point(aes(colour = lexical_class), alpha = 0.55, size = 1.1) +
+  ## se = TRUE: split by class, the descriptive-words slope is not resolved (n = 62;
+  ## 95% CI [-0.072, +0.014] contains the M0 slope). The band says so rather than
+  ## leaving a reader to assume every panel separates the two models.
+  geom_smooth(aes(colour = lexical_class, fill = lexical_class,
+                  linetype = "Accelerating (M3)"),
+              method = "lm", se = TRUE, linewidth = 0.8, formula = y ~ x, alpha = 0.18) +
+  geom_line(data = fig2$m0_lines, aes(linetype = "Pure accumulator (M0)"),
+            colour = "black", linewidth = 0.7) +
   ggrepel::geom_text_repel(data = labels_df,
-                           aes(label = sub("[ ]*\\(.*\\)$", "", word)), size = 2.7,
+                           aes(label = sub("[ ]*\\(.*\\)$", "", word)), size = 2.5,
                            max.overlaps = Inf, min.segment.length = 0,
-                           segment.size = 0.2, show.legend = FALSE) +
+                           segment.size = 0.2, segment.colour = "grey50",
+                           show.legend = FALSE) +
+  facet_wrap(~lexical_class, nrow = 2, labeller = as_labeller(NICE)) +
   scale_y_log10(labels = scales::label_number(big.mark = ","),
                 breaks = c(100, 1000, 10000, 100000),
                 limits = c(50, 1000000)) +
   scale_x_continuous(limits = fig2$xlim) +
-  # Okabe-Ito rather than Dark2: under simulated deuteranopia Dark2 put nouns and
-  # function words at dE 5.9 -- effectively the same colour, and they are the largest
-  # class and the top line. This lifts the worst pair to 20.7 with every colour
-  # still dark enough to read on white (L* 46-70).
-  scale_colour_manual(values = c("#0072B2", "#D55E00", "#56B4E9", "#CC79A7"), name = NULL,
-                      labels = c("Nouns", "Action Words", "Descriptive Words", "Function Words")) +
+  ## no colour key: the facet strip names the class, so a legend would only repeat it
+  scale_colour_manual(values = PAL, guide = "none") +
+  scale_fill_manual(values = PAL, guide = "none") +
   scale_linetype_manual(values = c("Accelerating (M3)" = "solid",
                                    "Pure accumulator (M0)" = "dashed"), name = NULL) +
-  ## colour keys show points (they identify word classes, not fits); the linetype legend
-  ## carries the model contrast in neutral grey so it is not read as a fifth word class
-  guides(colour = guide_legend(order = 1, override.aes = list(linetype = 0, size = 2)),
-         linetype = guide_legend(order = 2, override.aes = list(colour = "grey30"))) +
+  guides(linetype = guide_legend(override.aes = list(colour = "black"))) +
   labs(x = "Age (months) when 50% of children produce word",
        y = "Cumulative exposures at age of acquisition") +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom", panel.grid.minor = element_blank(),
-        legend.box = "vertical", legend.spacing.y = unit(0, "pt"))
+        strip.text = element_text(face = "bold", size = 10))
 ```
 
 The accelerating accumulator model captures a salient fact about language acquisition: the number of exposures necessary to learn a word decreases dramatically over childhood. A toddler may have heard a word like "book" thousands of times before they say it; a few years later a preschooler may hear "ibex" a handful of times on a trip to the zoo and repeat it the next day. 
