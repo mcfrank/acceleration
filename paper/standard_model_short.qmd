@@ -17,7 +17,7 @@ bibliography: standard_model.bib
 # Dataset citations appear as plain text in Table 1 (kable can't render
 # [@key] markers); list their bib keys here so they still appear in the
 # References. Add @marchman / @smith dataset keys once they exist in the bib.
-csl: science.csl
+csl: nature.csl
 format:
   # Science wants a single .docx for the main text, with figures embedded and the
   # supplementary materials as a separate file: "If you are using LaTeX, please convert
