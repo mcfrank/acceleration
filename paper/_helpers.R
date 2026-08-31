@@ -34,8 +34,8 @@ STUDY_PAL <- c("BabyView"  = "#E69F00",
 # Wordbank quantile palette (matches glmer_ladder/04b_plot.R) — used in
 # Fig 1 schematic + Fig 2 model ladder so the 10/25/50/75/90 quantile
 # fans line up visually across the manuscript.
-# Okabe-Ito. The previous ramp paired green (50th) with red (90th), which Science
-# prohibits outright ("avoid using red and green together") and which measured as the
+# Okabe-Ito. The previous ramp paired green (50th) with red (90th) -- the classic
+# colour-vision failure pair, and measured as the
 # worst pair in the figure: under simulated deuteranopia those two sat at dE 13.8 in CIE
 # Lab, where anything under ~15 starts to be confusable. This ordering keeps the same
 # low-to-high blue-to-warm direction and lifts the worst case to 17.6 with no green.
