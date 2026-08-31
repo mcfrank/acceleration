@@ -31,8 +31,8 @@ paper/*_files/
 paper/standard_model_short.tex
 paper/standard_model_short.pdf
 paper/standard_model_short.docx
-paper/science/supplement.tex
-paper/science/supplement.pdf
+paper/si/supplement.tex
+paper/si/supplement.pdf
 
 # --- LaTeX aux ---
 *.aux

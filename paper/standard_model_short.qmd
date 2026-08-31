@@ -19,13 +19,12 @@ bibliography: standard_model.bib
 # References. Add @marchman / @smith dataset keys once they exist in the bib.
 csl: nature.csl
 format:
-  # Science wants a single .docx for the main text, with figures embedded and the
-  # supplementary materials as a separate file: "If you are using LaTeX, please convert
-  # your paper into .docx format." The PDF target below is unchanged and remains what we
-  # render for internal review; `quarto render --to docx` produces the submission file.
+  # Two targets from one source: the PDF (SI folded in) is what we render for internal
+  # review, and `quarto render --to docx` produces a Word file for portals that ask for
+  # one. The supplement is built separately -- see paper/si/.
   docx:
     fig-dpi: 300
-    fig-width: 7.24     # 18.4 cm, Science's 3-column width
+    fig-width: 7.24     # 18.4 cm full-page figure width
   pdf:
     documentclass: article
     geometry: margin=1in
@@ -60,7 +59,7 @@ format:
 ---
 
 ```{r setup, include=FALSE}
-## Shared with paper/science/supplement.qmd -- see paper/_setup_shared.R
+## Shared with paper/si/supplement.qmd -- see paper/_setup_shared.R
 source("_setup_shared.R")
 ```
 
@@ -503,35 +502,6 @@ In sum, our study identifies acceleration in learning from experience as a funda
 
 **Funding**: Computing for this project was performed on the Sherlock and Marlowe clusters. We would like to thank Stanford University and Stanford Research Computing for providing computational resources and support that contributed to these research results. Funds for computational experiments were also provided by a gift from Meta to support research on children's home language environment. **Author contributions**: M.C.F designed and performed all research and wrote the paper. Claude Code was used for code generation, visualization, and simulation infrastructure. **Competing interests**: The author declares no competing interests. **Data, code, and materials availability**: Reproducible code for this paper is available at <https://github.com/mcfrank/acceleration>. All model fits are archived at <https://redivis.com/datasets/datapages.acceleration:a1c7>. Data were retrieved from Wordbank using the `wordbankr` package [@frank2017] and CHILDES using the\ `childesr` package [@sanchez2019]. All trained LMs are available at <https://huggingface.co/mcxfrank/childes-gpt2-ladder> and <https://huggingface.co/mcxfrank/gpt2-composition-control>.
 
-# List of Supplementary Materials
-
-```{r si-list, echo=FALSE, results="asis"}
-## Science asks for this index immediately after the Acknowledgments, listing the SI by
-## ITEM TYPE rather than by section name -- "Materials and Methods / Supplementary Text /
-## Figs. S1 to SN / Tables S1 to SN".
-##
-## Counted from supplemental.qmd rather than typed, so the ranges cannot drift when a
-## figure or table is added, removed or reordered. Reads chunk labels outside code fences,
-## which is where Quarto's own crossref numbering comes from, so the two agree by
-## construction.
-.si_src <- readLines(here::here("paper", "supplemental.qmd"))
-.n <- function(prefix) {
-  inchunk <- FALSE; k <- 0L
-  for (l in .si_src) {
-    if (grepl("^```\\{", l)) { inchunk <- TRUE; next }
-    if (identical(trimws(l), "```")) { inchunk <- FALSE; next }
-    if (grepl(paste0("^#\\| label: ", prefix, "-"), l)) k <- k + 1L
-  }
-  k
-}
-.rng <- function(n, sing, plur)
-  if (n == 0) NULL else if (n == 1) sprintf("%s S1", sing) else sprintf("%s S1 to S%d", plur, n)
-cat(paste(c("Materials and Methods", "Supplementary Text",
-            .rng(.n("fig"), "Fig.", "Figs."),
-            .rng(.n("tbl"), "Table", "Tables")),
-          collapse = "\n\n"))
-```
-
 # References
 
 ::: {#refs}
@@ -551,9 +521,8 @@ cat(paste(c("Materials and Methods", "Supplementary Text",
 ```
 
 ::: {.content-visible when-format="pdf"}
-<!-- The SI is folded into the PDF for internal review, but Science requires it as a
-     SEPARATE file (docx or PDF are both accepted), so it is excluded from the docx
-     render. paper/science/supplement.qmd builds the standalone SI PDF from the same
-     source, so there is one copy of the SI, not two. -->
+<!-- The SI is folded into the PDF for internal review but submitted as a separate
+     file, so it is excluded from the docx render. paper/si/supplement.qmd builds the
+     standalone SI PDF from the same source, so there is one copy of the SI, not two. -->
 {{< include supplemental.qmd >}}
 :::

@@ -18,7 +18,7 @@ near 1.2.
 
 ```bash
 quarto render paper/standard_model_short.qmd --to docx   # main text, for submission
-quarto render paper/science/supplement.qmd               # supplement, for submission
+quarto render paper/si/supplement.qmd                    # supplement, for submission
 quarto render paper/standard_model_short.qmd --to pdf    # both together, for review
 ```
 
@@ -33,7 +33,7 @@ if run without arguments).
 
 | path | what |
 |---|---|
-| `paper/` | manuscript, supplement, cache-building scripts, Science submission targets |
+| `paper/` | manuscript, supplement, cache-building scripts, submission targets |
 | `studies/bayes_long/` | the M0-M3 model ladder, 2PL variant, forward cross-validation |
 | `studies/llm/` | language-model learning-curve analysis |
 | `studies/gamlss/` | non-parametric quantile comparison |

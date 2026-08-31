@@ -2,7 +2,7 @@
 ## supplement need: packages, caches, palettes and the inline values quoted in prose.
 ##
 ## Extracted from the main .qmd setup chunk so the supplement can be rendered on its own.
-## Science requires the supplementary materials as a SEPARATE file, and the SI cannot be
+## The supplement is submitted as a SEPARATE file, and the SI cannot be
 ## built alone while the objects it quotes (n_excl, pct_excl, qc_mar, qc_nor and the
 ## caches) exist only inside the main document's setup chunk -- that is why rendering
 ## supplemental.qmd by itself has always failed with "object 'n_excl' not found".
@@ -74,7 +74,7 @@ pct_excl <- .pct(.bl("total")$pct_kids_excluded)
 # The device has to follow the output format. cairo_pdf emits vector PDF, which is right
 # for the LaTeX build but which Word cannot render -- a docx built with it embeds three
 # .pdf files that open as blank placeholders. ragg_png handles UTF-8 as well as cairo does
-# and satisfies Science's 300 dpi requirement for initial submission.
+# and emits 300 dpi rasters, the usual initial-submission floor.
 knitr::opts_chunk$set(
   echo = FALSE, message = FALSE, warning = FALSE, cache=TRUE,
   fig.align = "center", out.width = "100%", dpi = 300,
@@ -82,7 +82,7 @@ knitr::opts_chunk$set(
 )
 
 # ---- cross-references from the MAIN TEXT into the supplement -------------------
-# Science wants the main text and the supplement as separate files, so the main text is
+# The main text and the supplement are submitted as separate files, so the main text is
 # rendered without the SI. Quarto therefore has no target for @fig-input-age and emits a
 # broken "?@fig-input-age" into the .docx -- silently, with the render reporting success.
 #
@@ -103,7 +103,7 @@ knitr::opts_chunk$set(
     setNames(paste0("S", seq_along(tbls)), tbls))
 })
 
-# Comma-and-"and" series, as Science's own examples use ("Figs. S1 to S4").
+# Comma-and-"and" series ("figs. S1, S2 and S4").
 .si_series <- function(ns) if (length(ns) == 1) ns else
   paste0(paste(ns[-length(ns)], collapse = ", "), " and ", ns[length(ns)])
 

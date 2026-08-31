@@ -1,8 +1,8 @@
 ---
-title: "Supplementary Materials for *Children, but not language models, show accelerating returns in word learning*"
+title: "Supplementary Information for *Children, but not language models, show accelerating returns in word learning*"
 bibliography: ../standard_model.bib
-csl: ../science.csl
-# Science numbers supplementary items from 1 with a lowercase S prefix: "fig. S1",
+csl: ../nature.csl
+# Supplementary items are numbered from 1 with a lowercase S prefix: "fig. S1",
 # "table S1". The S belongs to the NUMBER, not the label -- putting it in fig-title
 # yields "fig. S 1", because Quarto joins label and number with a hardcoded space and
 # in PDF that join happens inside LaTeX's caption machinery, out of reach of a Lua
@@ -45,15 +45,14 @@ format:
 ---
 
 <!--
-Standalone supplement, for Science submission.
+Standalone supplement, for submission.
 
-WHY THIS FILE EXISTS. Science requires the supplementary materials as a separate file
-("The supplementary materials should be submitted as a single separate file in .docx or
-PDF format"), while the working PDF folds them into the main document for review. This
+WHY THIS FILE EXISTS. Journals take the supplementary materials as a separate file,
+while the working PDF folds them into the main document for review. This
 builds the SI on its own from the SAME source -- paper/supplemental.qmd -- so there is one
 copy of the supplement, not two that can drift apart.
 
-PDF rather than docx is deliberate and permitted. The SI carries thirteen kableExtra
+PDF rather than docx is deliberate. The SI carries thirteen kableExtra
 tables using pack_rows, add_header_above and landscape, none of which survive a Word
 conversion; the main text carries no tables at all, so it converts cleanly. Keeping the SI
 as PDF avoids rewriting all thirteen for no gain.
@@ -61,7 +60,7 @@ as PDF avoids rewriting all thirteen for no gain.
 The preamble above is what kableExtra injects into the main document; it has to be
 declared here because this file does not inherit the main .qmd's header-includes.
 
-Render:  quarto render paper/science/supplement.qmd
+Render:  quarto render paper/si/supplement.qmd
 -->
 
 ```{r si-standalone-setup, include=FALSE}
