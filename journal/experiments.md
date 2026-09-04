@@ -9,6 +9,9 @@
 > need the other repo's later entries, read them there.
 >
 > Orientation for a cold start: [`STANDARD_MODEL_CONTEXT.md`](STANDARD_MODEL_CONTEXT.md).
+>
+> **Numbering fork:** `standard_model_2` continued the shared series (42+) for input-paper
+> work, so acceleration entries are numbered **A1+** to keep cross-references unambiguous.
 
 A running record of fits, findings, and backlog for the standard-model
 project. For the durable model specification, see
@@ -2734,3 +2737,85 @@ mega-model (shared/partially-pooled child variance across datasets; items nested
 dataset) as the unified best-estimate model, with the ladder kept as independent
 replication. Report σ_b *magnitude* from the mega-model, not per-dataset (2+ per-dataset
 σ_b is inflated for sparse data — the motivation for pooling).
+
+
+## 🟢 A1. 1PL vs 2PL — better fit, same story, worse sampling (2026-08-02)
+
+`studies/bayes_long/03_compare_1pl_2pl.R` → table S8. M3 refit with per-item
+discrimination λ_j on all five datasets. LOO prefers the 2PL everywhere (ΔELPD −1,411 to
+−4,426), and discrimination is real: SD(log λ) 0.25–0.34 (10th–90th pct ≈ 0.65–1.51×),
+only weakly tied to difficulty (r 0.05–0.22). But nothing developmental moves: Δlog κ
++0.05 to +0.09 (Japanese +0.28, the smallest sample), AoA r = 0.986–0.999 with median
+absolute difference 0.13–1.47 months, predicted trajectories shift ≤ 4 points (JP 0.15).
+**Trap: the 2PL samples badly where data are sparse — Norwegian R-hat 1.83** against
+1.02–1.07 elsewhere; check per dataset, never pooled. Verdict: the Rasch model stays.
+
+## 🟢 A2. Forward-CV depth ladder — per-child κ_i never forecasts (2026-08-03)
+
+`studies/bayes_long/05_cv_depth_ladder.R` (TRAIN_K × TRAIN_MODE separates information
+from horizon) → table S3. Scoring held-out final administrations, M3 − M2 per child:
+last-k rungs −32.4 → 0.0 as k goes 2 → 5 (29–52% of children better), first-k −330 →
+−127. σ_b falls 12.6/9.6 → 5.3 with depth and ρ_ab hits −0.90 at k=2 — the prospective
+confirmation of entry 40/41's σ_b-inflation story: what M3 adds at low depth is mostly
+noise absorption, and it never pays out of sample.
+
+## 🟢 A3. Exclusion-filter sensitivity (2026-08-03)
+
+`06_qc_sensitivity_report.R` → table S6. κ refit under none/loose/main/tight QC across
+all five datasets: 9.4–13.1 with no filter at all, 10.4–13.3 across the three filter
+settings. Convergence judged on the reported parameters, not the full vector. κ does not
+depend on the exclusion rule.
+
+## 🟢 A4. M2₀ and the headline forward-CV — acceleration itself forecasts (2026-08-06/10)
+
+Built `m2_efficiency_k1.stan` (M2 with κ pinned to 1; data block drop-in identical) and
+scored it prospectively → table S4. M2 − M2₀: **+294.4 nats/child pooled (z = 31.0,
+94.2% of children better)**, and +91.9 → +248.1 across last-k 2 → 5. Paired with A2 this
+is the paper's sharpest CV claim: population acceleration forecasts, per-child
+acceleration does not. **Registered miss:** predicted the gap roughly flat across rungs;
+it grows, because the last-k design extends the training window backward as k rises.
+Infra landed alongside: `STAN_TAG_SFX` refit tags and persisted sampler diagnostics
+(`.diag.rds`) in `01_fit.R`.
+
+## 🟢 A5. Item-set narrowing — κ tracks the learner, not the ruler (2026-08-11)
+
+`09_item_subset_bundles.R` / `11_item_subset_report.R` → fig S4. M3 refit on the same
+children with the item set narrowed (mid50, mid25, easy/hard halves) or randomly thinned
+(rand50/25), 30 refits. Difficulty SD compressed up to 6.5×; a pure instrument-rescaling
+account predicts κ falls to 1.6–9.1. Observed κ ratio: **0.97–1.29** on narrowed sets,
+−3% to +4% on size-matched random controls (whose ruler prediction is 10.4–13.5, so the
+design separates fewer-items from narrower-spread). RMSE against the refits, per dataset:
+ruler 6.3–7.5 vs learner 0.69–2.14. κ is a property of the children.
+
+## 🟢 A6. Matched estimator — the LMs' own 4-PL run on child data (2026-08-11→13)
+
+`10_perword_4pl.R` → fig S8, table S11. The per-word four-parameter logistic used on LM
+surprisal (κ = 0.434/scale), fit to the proportion of children producing each word — no
+IRT anywhere. Raw per-word medians 2.0–4.0 across the five datasets vs **1.16 for LMs
+(609 words)**; the child estimates are attenuated by pooling heterogeneous curves, and a
+simulation-recovery correction (generate from fitted M3 → rerun pipeline → ratio) brings
+them close to the M3 values. **Bug caught by MCF:** the first table quoted 5,769 LM
+"words" that were actually seed×word FITS; aggregation to per-word medians fixed
+2026-08-13. Trap (also in ACCELERATION_PROVENANCE.md): run bare, the script silently
+truncates to 2 of 5 datasets.
+
+## 🟢 A7. Input-rate stability across development (2026-08-06)
+
+`07_input_stability.R` → fig S6. Within-child slope of log input rate on age, windowed to
+8–36 months: BabyView +0.0016 (SE 0.0019), SEEDLingS −0.0037 (0.0061), AM2018 +0.0208
+(0.0153), FMW2013 +0.0080 (0.0103) — all indistinguishable from zero. SEEDLingS' full-range
+"significant" slope traced to a lone 54-month follow-up across a 37-month gap; the window
+removes it. Supports the model's constant-input-rate assumption on all four longitudinal
+input corpora.
+
+## 🟢 A8. Fig 2 by word class — the descriptive-words panel does not resolve (2026-08-16)
+
+PR #1 (post-split). Faceting Fig 2 exposed that the pooled label selection gave
+15/14/2/0 labels by class (descriptive words: none) and that one class does not separate
+the models: descriptive-words semi-log slope −0.029 [−0.072, +0.014] contains the M0
+counterfactual (+0.003); n = 62, and the interval also contains slopes steeper than the
+action/function point estimates — underpowered, not disconfirming. Class × age
+interaction is real (p = .007; nouns −0.093, action −0.060, function −0.056, all
+excluding M0). Shipped faceted with per-class CI ribbons (se = TRUE), black dashed M0
+matching Fig 1's ink, Tol-muted palette (Fig 1B owns the Okabe-Ito slots; worst-case ΔE
+to that ramp 0.0 → 13.0 at unchanged within-palette separability).

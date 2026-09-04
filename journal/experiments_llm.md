@@ -317,7 +317,7 @@ re-training (GPU nondeterminism → not bit-identical; published CSVs remain gro
 
 ---
 
-## 🟡 L7. ccn2 — composition control: BabyLM vs ClimbMix (2026-07-17, queued)
+## 🟢 L7. ccn2 — composition control: BabyLM vs ClimbMix (2026-07-17 queued; results 2026-08)
 
 **Question — the affirmative leg for L5.** L5 split CHILDES halves (distributionally near-
 identical, low power to *find* divergence). Do LM "individuals" still converge in developmental
@@ -353,6 +353,15 @@ corpus-invariant frequency structure). MCF committed to genuine interpretation e
 `cdi_freq_corpora.csv`.
 
 ---
+
+
+**Result (2026-08).** 576 models (8 seeds × 12 nested sizes × 3 disjoint subsets × 2
+corpora). Best-val per-run κ: **BabyLM 1.85 (SD 0.43), ClimbMix 1.74 (SD 0.27)** across
+24 runs each, vs CHILDES development ladder 1.17 (SD 0.10) — and children at 11.3/12.6
+(SD 4.3/5.6). Corpus composition moves LM κ a little and in the expected direction
+(richer corpora slightly higher), but stays an order of magnitude below children:
+deceleration is not a CHILDES artifact. → `fits/llm/register_bestval.csv`, SI "composition"
+runs; feeds fig 3's variability panel.
 
 ## Infrastructure & environment
 
@@ -393,3 +402,11 @@ corpus-invariant frequency structure). MCF committed to genuine interpretation e
 - **Evanson, Lakretz & King (2023)** 48-seed GPT-2 (WikiText103): potential
   large-n seed-variance anchor *if* per-step checkpoints can be obtained — would
   let us run our per-word pipeline at n=48. Email TBD (see session notes).
+
+
+## 🟢 L8. Architecture generality — Chang & Bergen 2022 reanalysis (2026-08)
+
+No training; analysis of C&B's released per-word learning curves under our slope
+definition. Across the four architectures in their release: κ median **0.84
+[0.44, 1.64]**, n = 2,410 word-curves — centred just below 1, none approaching children.
+→ `fig6_llm_slopes$slopes_cb_arch`, fig S9. The LM result is not GPT-2-specific.
