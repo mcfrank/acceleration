@@ -195,28 +195,28 @@ Each step regenerates what the step above it starts from, working back to public
 
 1. **The manuscript, from committed intermediate results** — the demo above.
 2. **The intermediate results, from the model fits.** The fits are archived publicly on
-   Redivis at **<https://redivis.com/datasets/datapages.acceleration:a1c7>** (v1.0), in
-   three tables: `stan_fits` (Stan data bundles, posterior summaries, draws, diagnostics,
+   Redivis at **<https://redivis.com/datasets/datapages.acceleration:a1c7>** (v1.1), in
+   four tables: `stan_fits` (Stan data bundles, posterior summaries, draws, diagnostics,
    per-child and per-word exports), `lm_ladders` (per-word language-model learning
-   curves) and `loo_objects` (pointwise LOO, about 1 GB, needed only for the LOO
-   tables). This fetches the first two, 58 MB, into the layout the scripts expect:
+   curves), `loo_objects` (pointwise LOO, about 1 GB, needed only for the LOO
+   tables) and `word_frequencies` (the CHILDES word frequencies behind Fig. 2). This
+   fetches everything except the LOO objects, 58 MB, into the layout the scripts expect:
 
    ```r
    library(redivis)
-   ds  <- redivis$organization("datapages")$dataset("acceleration:a1c7", version = "v1.0")
+   ds  <- redivis$organization("datapages")$dataset("acceleration:a1c7", version = "v1.1")
    out <- "fits/bayes_long/summaries"
    ds$table("stan_fits")$download_files(path = out)
    bundles <- list.files(out, "^bundle_", full.names = TRUE)
    file.rename(bundles, file.path("fits/bayes_long", basename(bundles)))
    ds$table("lm_ladders")$download_files(path = "fits/llm")
+   ds$table("word_frequencies")$download_files(path = "fits")
    ```
 
    The Redivis client asks you to log in on first use (a free account is enough);
    non-interactive scripts can set `REDIVIS_API_TOKEN` instead. The cache-building
    scripts, the order to run them in and their traps are listed claim by claim in
-   [`journal/ACCELERATION_PROVENANCE.md`](journal/ACCELERATION_PROVENANCE.md). One
-   input is not yet in the archive: `paper/build_cache_short.R` also reads the CHILDES
-   word frequencies behind Fig. 2 (`fits/english_word_freq.rds`).
+   [`journal/ACCELERATION_PROVENANCE.md`](journal/ACCELERATION_PROVENANCE.md).
 3. **The fits, from the model inputs.** On a Slurm cluster, `studies/bayes_long/fit.slurm`
    runs one dataset × model; `fcv.slurm` and `pool.slurm` run the forward
    cross-validation and the pooled fit, and `cluster/sherlock/setup_R.R` sets up R and
